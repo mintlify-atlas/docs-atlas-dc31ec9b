@@ -1,0 +1,99 @@
+{
+  "projectType": "api-service",
+  "projectName": "GroceryStore API",
+  "projectDescription": "High-performance backend API for grocery store inventory and product management with dynamic JSONB metadata validation.",
+  "theme": "aspen",
+  "primaryColor": "#10b981",
+  "lightColor": "#34d399",
+  "darkColor": "#059669",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "prerequisites"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/vertical-slice",
+              "architecture/database-design",
+              "architecture/hybrid-data-access"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/dynamic-metadata",
+              "concepts/category-hierarchy",
+              "concepts/validation-pipeline",
+              "concepts/soft-deletion"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/database-setup",
+              "guides/product-management",
+              "guides/category-metadata",
+              "guides/sku-generation"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Products",
+            "pages": [
+              "api/products/create",
+              "api/products/update",
+              "api/products/delete",
+              "api/products/list"
+            ]
+          },
+          {
+            "group": "Categories",
+            "pages": [
+              "api/categories/list",
+              "api/categories/get-metadata"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "api/reference/error-handling",
+              "api/reference/response-formats"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Dynamic JSONB product metadata with category-based validation",
+    "Vertical Slice Architecture for feature isolation",
+    "Hybrid data access with EF Core and Dapper",
+    "Recursive category hierarchy with attribute inheritance",
+    "PostgreSQL JSONB optimized queries with LATERAL joins",
+    "Schema-driven validation and normalization pipeline",
+    "Automatic SKU generation",
+    "Soft deletion with global query filters"
+  ],
+  "publicApiSurface": [
+    "POST /api/v1/admin/products",
+    "PUT /api/v1/admin/products/{id}",
+    "DELETE /api/v1/admin/products/{id}",
+    "GET /api/v1/admin/products",
+    "GET /api/v1/admin/categories",
+    "GET /api/v1/admin/categories/{categoryId}/metadata"
+  ]
+}
