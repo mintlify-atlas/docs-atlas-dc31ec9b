@@ -1,97 +1,74 @@
 ---
 title: "Introduction"
-description: "Welcome to the new home for your documentation"
+description: "High-performance backend API for grocery store inventory and product management with dynamic JSONB metadata validation"
 ---
 
-## Setting up
+# Welcome to GroceryStore API
 
-Get your documentation site up and running in minutes.
+A production-ready ASP.NET Core backend API that demonstrates advanced data architecture patterns for managing grocery store inventory and products.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+## Key Features
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Dynamic JSONB Metadata" icon="database" href="/concepts/dynamic-metadata">
+    Flexible product attributes stored in PostgreSQL JSONB with category-based validation
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Vertical Slice Architecture" icon="layer-group" href="/architecture/vertical-slice">
+    Feature-isolated design that minimizes coupling and improves scalability
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Hybrid Data Access" icon="arrows-split-up-and-left" href="/architecture/hybrid-data-access">
+    EF Core for writes, Dapper for optimized read queries
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Category Hierarchy" icon="sitemap" href="/concepts/category-hierarchy">
+    Recursive category system with inherited attribute validation
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Start
 
-Everything you need to create world-class documentation.
+Get up and running with the GroceryStore API in minutes.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up the API and make your first request
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Prerequisites" icon="list-check" href="/prerequisites">
+    System requirements and dependencies
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Database Setup" icon="database" href="/guides/database-setup">
+    Configure PostgreSQL and run migrations
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="API Reference" icon="code" href="/api/products/create">
+    Explore the complete API documentation
   </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
+## Architecture Highlights
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+Built with modern backend engineering principles:
+
+- **PostgreSQL JSONB** for schema-flexible product metadata
+- **LATERAL joins** and recursive CTEs for optimized queries
+- **Schema-driven validation** with dynamic normalization pipeline
+- **Soft deletion** with EF Core global query filters
+- **Automatic SKU generation** based on category hierarchy
+- **FluentValidation** for request validation
+- **Compile-time DI** registration via source generators
+
+<Note>
+This project is actively under development. Authentication and inventory workflows are planned for future releases.
+</Note>
+
+## What's Inside
+
+<CardGroup cols={3}>
+  <Card title="Product Management" icon="box" href="/guides/product-management">
+    Create and manage products with dynamic attributes
+  </Card>
+  <Card title="Category Metadata" icon="tags" href="/guides/category-metadata">
+    Work with category hierarchies and attribute schemas
+  </Card>
+  <Card title="Validation Pipeline" icon="shield-check" href="/concepts/validation-pipeline">
+    Understand the normalization and validation system
+  </Card>
+</CardGroup>

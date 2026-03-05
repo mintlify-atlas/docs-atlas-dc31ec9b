@@ -1,0 +1,274 @@
+---
+title: Category Hierarchy
+description: Understand how the GroceryStore API uses recursive category structures to enable attribute inheritance
+---
+
+Categories in the GroceryStore API are organized in a tree structure that supports unlimited nesting levels. Child categories automatically inherit attributes from their parent categories, creating a powerful and flexible classification system.
+
+## Recursive Category Structure
+
+Categories support a self-referential relationship through the `ParentId` property:
+
+```csharp Category.cs
+public class Category : BaseEntity
+{
+    required public string Name { get; set; }
+    
+    public int? ParentId { get; set; }
+    public Category? Parent { get; set; }
+    
+    public ICollection<CategoryAttribute> Attributes { get; set; } = new List<CategoryAttribute>();
+    public ICollection<Category> Children { get; set; } = new List<Category>();
+    public ICollection<Product> Products { get; set; } = new List<Product>();
+}
+```
+
+<Note>
+  The `ParentId` is nullable, allowing root-level categories to exist without a parent.
+</Note>
+
+## Category-Attribute Relationship
+
+Categories are linked to product attributes through the `CategoryAttribute` join entity:
+
+```csharp CategoryAttribute.cs
+public class CategoryAttribute
+{
+    public int CategoryId { get; set; }
+    public int AttributeId { get; set; }
+    public bool IsRequired { get; set; }
+    
+    public Category Category { get; set; } = null!;
+    public ProductAttribute Attribute { get; set; } = null!;
+}
+```
+
+This relationship defines:
+- **Which attributes** are available for a category
+- **Whether the attribute is required** for products in that category
+
+## Attribute Inheritance
+
+When you assign a product to a category, it inherits **all attributes from that category and its parent chain**. This is implemented using a recursive Common Table Expression (CTE).
+
+### Example Hierarchy
+
+```
+Food (root)
+├── Dairy
+│   ├── Milk
+│   └── Cheese
+└── Beverages
+    └── Alcoholic
+        ├── Beer
+        └── Wine
+```
+
+If **Milk** has these relationships:
+- **Food** category defines: "Organic" (boolean)
+- **Dairy** category defines: "Fat Content" (decimal)
+- **Milk** category defines: "Volume" (integer)
+
+A product in the **Milk** category inherits all three attributes.
+
+<Info>
+  Products must provide values for all required attributes in their entire inheritance chain.
+</Info>
+
+## Recursive Metadata Retrieval
+
+The system retrieves the complete attribute schema for a category using a recursive SQL query:
+
+```sql CategoryAttributeRepository.cs:14-39
+WITH RECURSIVE category_tree AS (
+    SELECT id, parent_id 
+    FROM categories 
+    WHERE id = @categoryId
+
+    UNION ALL
+
+    SELECT c.id, c.parent_id 
+    FROM categories c
+    JOIN category_tree ct ON c.id = ct.parent_id
+)
+
+SELECT DISTINCT
+    a.id              AS AttributeId,
+    a.name            AS Name,
+    a.data_type       AS DataType,
+    a.unit            AS Unit,
+    a.min_value       AS MinValue,
+    a.max_value       AS MaxValue,
+    ca.is_required    AS IsRequired
+FROM category_tree ct
+JOIN category_attributes ca ON ct.id = ca.category_id
+JOIN attributes a ON ca.attribute_id = a.id
+```
+
+### How It Works
+
+<Accordion title="Step 1: Anchor Member">
+  ```sql
+  SELECT id, parent_id 
+  FROM categories 
+  WHERE id = @categoryId
+  ```
+  
+  Starts with the target category.
+</Accordion>
+
+<Accordion title="Step 2: Recursive Member">
+  ```sql
+  SELECT c.id, c.parent_id 
+  FROM categories c
+  JOIN category_tree ct ON c.id = ct.parent_id
+  ```
+  
+  Climbs up the tree by joining the parent category until reaching the root.
+</Accordion>
+
+<Accordion title="Step 3: Attribute Collection">
+  ```sql
+  SELECT DISTINCT
+      a.id AS AttributeId,
+      ...
+  FROM category_tree ct
+  JOIN category_attributes ca ON ct.id = ca.category_id
+  JOIN attributes a ON ca.attribute_id = a.id
+  ```
+  
+  Collects all unique attributes from the entire parent chain.
+</Accordion>
+
+## Repository Implementation
+
+The `CategoryAttributeRepository` encapsulates this logic:
+
+```csharp CategoryAttributeRepository.cs:9-44
+public async Task<List<MetadataAttribute>> GetMetadataSchemaAsync(
+    int categoryId,
+    CancellationToken ct)
+{
+    using var connection = factory.CreateConnection();
+    const string sql =
+        """
+        WITH RECURSIVE category_tree AS (
+            SELECT id, parent_id 
+            FROM categories 
+            WHERE id = @categoryId
+
+            UNION ALL
+
+            SELECT c.id, c.parent_id 
+            FROM categories c
+            JOIN category_tree ct ON c.id = ct.parent_id
+        )
+
+        SELECT DISTINCT
+            a.id              AS AttributeId,
+            a.name            AS Name,
+            a.data_type       AS DataType,
+            a.unit            AS Unit,
+            a.min_value       AS MinValue,
+            a.max_value       AS MaxValue,
+            ca.is_required    AS IsRequired
+        FROM category_tree ct
+        JOIN category_attributes ca ON ct.id = ca.category_id
+        JOIN attributes a ON ca.attribute_id = a.id
+        """;
+
+    var cmd = new CommandDefinition(sql, new { categoryId }, cancellationToken: ct);
+    var result = await connection.QueryAsync<MetadataAttribute>(cmd);
+    return result.ToList();
+}
+```
+
+<Note>
+  This query uses Dapper for optimal read performance, while write operations use Entity Framework Core.
+</Note>
+
+## Performance Optimization
+
+Category metadata schemas are cached to avoid repeated database queries:
+
+```csharp CategoryAttributeValueNormalizer.cs:102-120
+private async ValueTask<List<MetadataAttribute>> GetMetadataAsync(int categoryId, CancellationToken ct)
+{
+    const string cacheKeyPrefix = "category_metadata";
+
+    var cacheKey = $"{cacheKeyPrefix}_{categoryId}";
+    return (await cache.GetOrCreateAsync(cacheKey, async entry =>
+    {
+        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30);
+
+        var metadata = await repository.GetMetadataSchemaAsync(categoryId, ct);
+
+        if (metadata.Count == 0)
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2);
+        }
+
+        return metadata;
+    })) !;
+}
+```
+
+### Caching Strategy
+
+- **Valid schemas**: Cached for 30 minutes
+- **Empty schemas**: Cached for only 2 minutes (likely configuration error)
+- **Cache key**: `category_metadata_{categoryId}`
+
+<Info>
+  Category schemas rarely change in production, making them ideal candidates for caching.
+</Info>
+
+## Benefits
+
+### Reduced Redundancy
+Attributes defined at the parent level are automatically available to all descendants. No need to duplicate attribute definitions.
+
+### Flexible Taxonomy
+Add new subcategories without modifying existing attribute definitions. New categories inherit what they need automatically.
+
+### Logical Organization
+The hierarchy mirrors real-world product classification, making it intuitive for both developers and business users.
+
+## Example: Querying Metadata
+
+Get all required attributes for a category:
+
+```bash
+GET /api/v1/admin/categories/15/metadata
+```
+
+Response:
+
+```json
+[
+  {
+    "attributeId": 1,
+    "name": "Fat Content",
+    "dataType": "Decimal",
+    "unit": "%",
+    "minValue": 0,
+    "maxValue": 100,
+    "isRequired": true
+  },
+  {
+    "attributeId": 2,
+    "name": "Volume",
+    "dataType": "Integer",
+    "unit": "ml",
+    "minValue": 1,
+    "maxValue": null,
+    "isRequired": true
+  }
+]
+```
+
+## Related Concepts
+
+- [Dynamic Metadata](/concepts/dynamic-metadata) - How metadata is stored using JSONB
+- [Validation Pipeline](/concepts/validation-pipeline) - How inherited attributes are validated
+- [Category Management](/api/categories/list) - API reference for working with categories

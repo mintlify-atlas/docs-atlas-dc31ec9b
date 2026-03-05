@@ -1,0 +1,389 @@
+---
+title: Category Metadata
+description: Understanding dynamic product attributes, category inheritance, and metadata validation
+---
+
+The GroceryStore API uses a flexible metadata system that allows different product categories to have different required attributes stored in PostgreSQL JSONB format.
+
+## Metadata System Overview
+
+Products store dynamic attributes in a `metadata` JSONB column. The schema for these attributes is defined at the category level and validated dynamically at runtime.
+
+### Key Concepts
+
+<CardGroup cols={2}>
+  <Card title="Dynamic Attributes" icon="sliders">
+    Each category can have different required attributes (e.g., Milk needs Fat Content, Alcohol needs Alcohol %)
+  </Card>
+  <Card title="Hierarchical Inheritance" icon="sitemap">
+    Subcategories inherit all attributes from their parent categories
+  </Card>
+  <Card title="JSONB Storage" icon="database">
+    Attributes are stored in PostgreSQL JSONB, allowing efficient querying and indexing
+  </Card>
+  <Card title="Schema-Driven Validation" icon="shield-check">
+    Validation rules are stored in the database, not hardcoded
+  </Card>
+</CardGroup>
+
+## Category Hierarchy
+
+### Example Structure
+
+```
+Dairy (Category ID: 1)
+├── Milk (Category ID: 3)
+│   └── Inherits: All Dairy attributes
+├── Cheese (Category ID: 4)
+│   ├── Hard Cheese (Category ID: 5)
+│   │   └── Inherits: Dairy + Cheese attributes
+│   └── Soft Cheese (Category ID: 6)
+│       └── Inherits: Dairy + Cheese attributes
+└── Yogurt (Category ID: 7)
+    └── Inherits: All Dairy attributes
+
+Alcohol (Category ID: 2)
+├── Beer (Category ID: 8)
+├── Wine (Category ID: 9)
+└── Spirits (Category ID: 10)
+```
+
+Each subcategory automatically inherits all attributes from its parent using **recursive CTEs** in the database query.
+
+## Getting Category Metadata
+
+### Endpoint
+
+```bash
+GET /api/v1/admin/categories/{categoryId}/metadata
+```
+
+This endpoint returns all attributes required for a specific category, including inherited ones.
+
+### Example Request
+
+```bash
+GET /api/v1/admin/categories/5/metadata
+```
+
+**Response:**
+```json
+[
+  {
+    "attributeId": 1,
+    "name": "Fat Content",
+    "dataType": "Decimal",
+    "unit": "%",
+    "minValue": 0.0,
+    "maxValue": 100.0,
+    "isRequired": true
+  },
+  {
+    "attributeId": 2,
+    "name": "Weight",
+    "dataType": "Integer",
+    "unit": "g",
+    "minValue": 0,
+    "maxValue": 10000,
+    "isRequired": true
+  },
+  {
+    "attributeId": 7,
+    "name": "Mold Type",
+    "dataType": "String",
+    "unit": null,
+    "minValue": null,
+    "maxValue": null,
+    "isRequired": false
+  }
+]
+```
+
+<Info>
+  The response includes attributes from:
+  - Hard Cheese (ID: 5)
+  - Cheese (ID: 4) - parent
+  - Dairy (ID: 1) - grandparent
+</Info>
+
+## Attribute Data Types
+
+The system supports five data types:
+
+<AccordionGroup>
+  <Accordion title="String (1)">
+    Text values with no automatic validation.
+
+    **Examples:**
+    - Milk Source: "Cow", "Goat", "Sheep"
+    - Flavor: "Vanilla", "Chocolate"
+    - Base Ingredient: "Wheat", "Corn"
+
+    **Stored as:** Raw string in JSONB
+  </Accordion>
+
+  <Accordion title="Integer (2)">
+    Whole numbers with optional min/max validation.
+
+    **Examples:**
+    - Weight: 500 (grams)
+    - Volume: 1000 (milliliters)
+
+    **Validation:**
+    - Must parse as valid integer
+    - Must be within minValue/maxValue if specified
+
+    **Stored as:** String representation in JSONB
+  </Accordion>
+
+  <Accordion title="Decimal (3)">
+    Floating-point numbers with optional range validation.
+
+    **Examples:**
+    - Fat Content: 3.5 (%)
+    - Alcohol Content: 5.2 (%)
+    - Sugar Content: 12.8 (%)
+
+    **Validation:**
+    - Must parse as valid decimal
+    - Normalized to consistent precision
+    - Must be within minValue/maxValue if specified
+
+    **Stored as:** Normalized string in JSONB
+  </Accordion>
+
+  <Accordion title="DateTime (4)">
+    ISO 8601 date/time values.
+
+    **Examples:**
+    - Best Before Date
+    - Harvest Date
+
+    **Validation:**
+    - Must parse as valid DateTime
+    - Normalized to ISO 8601 format
+
+    **Stored as:** ISO string in JSONB
+  </Accordion>
+
+  <Accordion title="Boolean (5)">
+    True/false values with flexible input.
+
+    **Examples:**
+    - Lactose Free: true
+    - Organic: false
+    - Contains Filling: true
+
+    **Accepted Input:**
+    - `"true"`, `"false"`
+    - `"1"`, `"0"`
+    - `true`, `false` (JSON boolean)
+
+    **Stored as:** `"true"` or `"false"` string in JSONB
+  </Accordion>
+</AccordionGroup>
+
+## Metadata Validation Flow
+
+When creating or updating a product, the system follows this validation pipeline:
+
+<Steps>
+  <Step title="Retrieve Category Schema">
+    Fetch all required attributes for the category using a **recursive CTE** that traverses the category hierarchy.
+
+    The schema is cached in `IMemoryCache` for 30 minutes to reduce database queries.
+  </Step>
+
+  <Step title="Check Required Attributes">
+    Ensure all attributes marked as `isRequired: true` are present in the request.
+
+    **Error Example:**
+    ```json
+    {
+      "errors": [
+        "Attribute 'Fat Content' (ID: 1) is required for this category."
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Validate Data Types">
+    Parse and validate each attribute value according to its `dataType`.
+
+    **Error Example:**
+    ```json
+    {
+      "errors": [
+        "Attribute 'Weight' must be a valid integer."
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Check Range Constraints">
+    Verify numeric values are within `minValue` and `maxValue` if specified.
+
+    **Error Example:**
+    ```json
+    {
+      "errors": [
+        "Attribute 'Fat Content' must be between 0 and 100."
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Normalize Values">
+    Convert values to a canonical format for storage:
+    - Decimals: Consistent precision
+    - Booleans: "true"/"false" strings
+    - DateTimes: ISO 8601 format
+
+    This ensures consistent querying and comparison.
+  </Step>
+
+  <Step title="Store in JSONB">
+    The normalized dictionary is serialized to JSONB with attribute IDs as keys:
+
+    ```json
+    {
+      "1": "3.5",
+      "3": "1000",
+      "8": "false"
+    }
+    ```
+  </Step>
+</Steps>
+
+## Working with Category Attributes
+
+### Listing All Categories
+
+```bash
+GET /api/v1/admin/categories
+```
+
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "name": "Dairy",
+    "parentId": null,
+    "fullPath": "Dairy",
+    "level": 1
+  },
+  {
+    "id": 3,
+    "name": "Milk",
+    "parentId": 1,
+    "fullPath": "Dairy > Milk",
+    "level": 2
+  },
+  {
+    "id": 4,
+    "name": "Cheese",
+    "parentId": 1,
+    "fullPath": "Dairy > Cheese",
+    "level": 2
+  }
+]
+```
+
+### Querying Products by Metadata
+
+The system uses **JSONB operators** and **LATERAL JOINs** for efficient metadata queries without deserialization overhead.
+
+**Example: Products with Fat Content > 5%**
+```sql
+SELECT p.name, (p.metadata->>'1')::decimal as fat_content
+FROM products p
+WHERE (p.metadata->>'1')::decimal > 5.0
+AND p.is_active = true;
+```
+
+<Tip>
+  The `metadata` column is indexed as GIN (Generalized Inverted Index) for fast JSONB queries.
+</Tip>
+
+## Seeded Attributes
+
+The initial migration seeds the following attributes:
+
+| ID | Name | Data Type | Unit | Min | Max | Common Categories |
+|----|------|-----------|------|-----|-----|-----------------|
+| 1 | Fat Content | Decimal | % | 0 | 100 | Dairy |
+| 2 | Weight | Integer | g | 0 | 10000 | General |
+| 3 | Volume | Integer | ml | 0 | 10000 | Beverages |
+| 4 | Milk Source | String | - | - | - | Dairy |
+| 5 | Base Ingredient | String | - | - | - | Bakery |
+| 6 | Flavor | String | - | - | - | Desserts |
+| 7 | Mold Type | String | - | - | - | Cheese |
+| 8 | Lactose Free | Boolean | - | - | - | Dairy |
+| 9 | Sugar Content | Decimal | % | 0 | 100 | Sweets |
+| 10 | Contains Filling | Boolean | - | - | - | Bakery |
+| 11 | Alcohol Content | Decimal | % | 0 | 100 | Alcohol |
+| 13 | Organic | Boolean | - | - | - | General |
+| 16 | Temperature Storage | Decimal | °C | - | - | Perishables |
+
+## Caching Strategy
+
+Metadata schemas are cached at two levels:
+
+<Steps>
+  <Step title="Server-Side Cache">
+    `IMemoryCache` stores category metadata for **30 minutes**.
+
+    **Cache Key Format:** `category_metadata_{categoryId}`
+
+    This dramatically reduces database load for frequent product creation.
+  </Step>
+
+  <Step title="Category Name Cache">
+    The SKU generation service caches category names for **3 hours** (or 2 minutes if not found).
+
+    **Cache Key Format:** `category_name_{categoryId}`
+  </Step>
+</Steps>
+
+<Warning>
+  If you modify category attributes in the database directly, you may need to restart the application or wait for cache expiration to see changes.
+</Warning>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Design category hierarchies carefully">
+    Since subcategories inherit all parent attributes, place common attributes high in the tree (e.g., "Weight" at the root) and specialized ones lower (e.g., "Mold Type" only for Cheese).
+  </Accordion>
+
+  <Accordion title="Use appropriate data types">
+    - **String**: For free-text or enumerated values
+    - **Integer**: For counts, whole quantities
+    - **Decimal**: For percentages, measurements
+    - **Boolean**: For yes/no flags
+    - **DateTime**: For dates and timestamps
+  </Accordion>
+
+  <Accordion title="Set reasonable min/max constraints">
+    Prevent invalid data early:
+    - Fat Content: 0-100% (not negative, not over 100)
+    - Weight: 0-10000g (prevents accidental tons)
+    - Alcohol %: 0-100% (physical limits)
+  </Accordion>
+
+  <Accordion title="Mark attributes as required judiciously">
+    Only mark attributes as `isRequired: true` if they're truly essential. This reduces friction for API consumers.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Product Management" icon="box" href="/guides/product-management">
+    Learn how to create products with metadata
+  </Card>
+  <Card title="SKU Generation" icon="barcode" href="/guides/sku-generation">
+    Understand automatic SKU creation logic
+  </Card>
+</CardGroup>

@@ -1,0 +1,259 @@
+---
+title: Architecture Overview
+description: High-level architecture of the GroceryStore API, including tech stack, design principles, and key architectural decisions
+---
+
+## Introduction
+
+The GroceryStore API is a high-performance backend system designed for grocery store inventory and product management. The architecture emphasizes **performance**, **maintainability**, and **flexibility** through modern design patterns and strategic technology choices.
+
+<Note>
+  This project is actively under development. Authentication, Dockerization, and inventory workflows are currently in progress.
+</Note>
+
+## Tech Stack
+
+<CardGroup cols={2}>
+  <Card title="Backend Framework" icon="code">
+    - .NET 10
+    - ASP.NET Core Minimal APIs
+    - C# with nullable reference types
+  </Card>
+  
+  <Card title="Database" icon="database">
+    - PostgreSQL
+    - JSONB for flexible metadata
+    - Entity Framework Core
+  </Card>
+  
+  <Card title="Data Access" icon="bolt">
+    - EF Core (Write operations)
+    - Dapper (Optimized reads)
+  </Card>
+  
+  <Card title="Key Libraries" icon="puzzle-piece">
+    - FluentValidation
+    - ServiceScan.SourceGenerator
+    - IMemoryCache
+  </Card>
+</CardGroup>
+
+## Core Design Principles
+
+### 1. Vertical Slice Architecture
+
+Features are organized by business capability rather than technical layers. Each feature is self-contained with its own:
+
+- Endpoint definition
+- Request/Response DTOs
+- Validation logic
+- Repository
+- Domain logic
+
+This minimizes coupling and improves scalability. [Learn more →](/architecture/vertical-slice)
+
+### 2. Hybrid Data Access Strategy
+
+The system uses different tools for different jobs:
+
+- **EF Core** for command operations (writes) - provides change tracking and domain modeling
+- **Dapper** for high-performance read queries - direct SQL with minimal overhead
+
+This separation optimizes performance while maintaining development simplicity. [Learn more →](/architecture/hybrid-data-access)
+
+### 3. Dynamic Product Metadata
+
+Products support flexible attributes depending on their category hierarchy using PostgreSQL JSONB:
+
+```csharp
+public class Product : BaseEntity
+{
+    // ... standard properties
+    public Dictionary<int, string> Metadata { get; private set; } = new();
+}
+```
+
+Metadata is validated dynamically based on recursive category inheritance, allowing products to have different attributes (e.g., fat content, alcohol percentage, weight) without schema changes.
+
+### 4. Data Integrity & Safety
+
+<Steps>
+  <Step title="Soft Deletion">
+    Products use logical deletion via `IsActive` flag. EF Core Global Query Filters automatically exclude inactive entities:
+    
+    ```csharp
+    builder.HasQueryFilter(p => p.IsActive);
+    ```
+  </Step>
+  
+  <Step title="Foreign Key Safety">
+    All relationships use `Restrict` delete behavior to prevent unintended cascading deletions:
+    
+    ```csharp
+    modelBuilder.OnDeleteRestrictRules();
+    ```
+  </Step>
+</Steps>
+
+## Key Architectural Features
+
+### Compile-Time Endpoint Registration
+
+Endpoints and services are registered automatically via `IEndpoint` interface and Source Generators, eliminating reflection overhead:
+
+```csharp
+public class CreateProduct : IEndpoint
+{
+    public static void MapEndpoint(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/api/v1/admin/products", HandleAsync)
+            .WithTags("AdminProducts")
+            .WithSummary("Creates a new Product");
+    }
+}
+```
+
+In `Program.cs`:
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddBasicServices()
+    .AddDatabaseServices(builder.Configuration)
+    .AddFeatureServices();
+
+var app = builder.Build();
+app.MapEndpointsGenerated(); // Auto-registered via source generator
+```
+
+### Snake_case Convention
+
+Database tables, columns, and foreign keys are automatically converted to PostgreSQL-friendly `snake_case` using custom `ModelBuilder` extensions:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+    modelBuilder.AddPostgreSqlRules(); // Converts to snake_case
+    modelBuilder.OnDeleteRestrictRules();
+}
+```
+
+### Result Pattern for Validation
+
+Instead of exception-based flow, the system uses `ValidationResult` and `NormalizationResult`:
+
+```csharp
+public async Task<NormalizationResult<Dictionary<int, string>>> ValidateAndNormalizeAsync(
+    int categoryId,
+    IReadOnlyList<EnumerationModel> values,
+    CancellationToken ct)
+{
+    var vr = new ValidationResult();
+    // ... validation logic
+    
+    return !vr.IsValid
+        ? NormalizationResult<Dictionary<int, string>>.Fail(vr)
+        : NormalizationResult<Dictionary<int, string>>.Success(normalized);
+}
+```
+
+**Benefits:**
+- Batch error collection - multiple validation errors returned in single response
+- Better performance - avoids expensive stack trace generation
+- Predictable flow control
+
+### Optimized JSONB Queries
+
+Metadata extraction uses advanced PostgreSQL features:
+
+- **LATERAL JOIN** for correlated subqueries
+- **JSONB functions** for efficient querying
+- **Recursive CTEs** for category hierarchy traversal
+
+[See database design →](/architecture/database-design)
+
+## Performance Optimizations
+
+<AccordionGroup>
+  <Accordion title="Caching Strategy">
+    Category metadata schemas are cached using `IMemoryCache` with 30-minute expiration:
+    
+    ```csharp
+    var cacheKey = $"category_metadata_{categoryId}";
+    return await cache.GetOrCreateAsync(cacheKey, async entry =>
+    {
+        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30);
+        return await repository.GetMetadataSchemaAsync(categoryId, ct);
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Query Optimization">
+    Read operations use Dapper with hand-crafted SQL for optimal performance:
+    - Direct SQL execution without LINQ translation overhead
+    - Minimal allocations
+    - Full control over query plans
+  </Accordion>
+  
+  <Accordion title="JSONB Indexing">
+    PostgreSQL JSONB columns support GIN indexes for fast querying of metadata attributes without deserialization overhead.
+  </Accordion>
+</AccordionGroup>
+
+## Project Structure
+
+```
+GroceryStore/
+├── Bootstrap/              # Dependency injection setup
+├── Database/              # EF Core context, entities, configurations
+│   ├── Entities/         # Domain models
+│   ├── Configurations/   # EF Core fluent configurations
+│   └── Enums/           # Database enums
+├── Features/             # Vertical slice features
+│   └── Admin/
+│       ├── Product/     # Product management features
+│       └── Categories/  # Category management features
+├── Infrastructure/       # Cross-cutting concerns
+│   ├── Repositories/   # Shared repositories
+│   └── Services/       # Domain services
+├── Migrations/          # EF Core migrations
+├── Shared/              # Common utilities
+│   ├── Extensions/
+│   ├── Interfaces/
+│   └── Models/
+└── Program.cs           # Application entry point
+```
+
+## API Documentation
+
+The API uses **Scalar** for interactive API documentation, available at `/scalar/v1` in development mode:
+
+```csharp
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference(o =>
+        o.WithTheme(ScalarTheme.DeepSpace)
+            .WithTitle("Grocery Store"));
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Vertical Slice Architecture" icon="layer-group" href="/architecture/vertical-slice">
+    Learn how features are organized and structured
+  </Card>
+  
+  <Card title="Database Design" icon="database" href="/architecture/database-design">
+    Explore the PostgreSQL schema and JSONB usage
+  </Card>
+  
+  <Card title="Hybrid Data Access" icon="arrows-left-right" href="/architecture/hybrid-data-access">
+    Understand the EF Core + Dapper strategy
+  </Card>
+  
+  <Card title="Getting Started" icon="rocket" href="/getting-started">
+    Set up and run the project
+  </Card>
+</CardGroup>

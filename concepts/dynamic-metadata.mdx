@@ -1,0 +1,185 @@
+---
+title: Dynamic Metadata System
+description: Learn how the GroceryStore API uses PostgreSQL JSONB to store flexible, category-specific product attributes
+---
+
+The GroceryStore API implements a flexible metadata system that allows products to have different attributes based on their category. This is achieved using PostgreSQL's JSONB column type combined with dynamic validation.
+
+## Overview
+
+Products in different categories require different attributes:
+- **Dairy products** need fat content percentage
+- **Alcoholic beverages** need alcohol percentage and volume
+- **Meat products** need weight and origin country
+
+Instead of creating separate tables or hundreds of nullable columns, the system stores these attributes in a single `Metadata` JSONB field.
+
+<Note>
+  JSONB provides the flexibility of NoSQL with the power of relational queries, allowing you to filter and index on dynamic attributes.
+</Note>
+
+## Product Entity Structure
+
+The `Product` entity includes a `Metadata` property that stores category-specific attributes as a dictionary:
+
+```csharp Product.cs:60
+public Dictionary<int, string> Metadata { get; private set; } = new();
+```
+
+The metadata is stored as key-value pairs where:
+- **Key**: Attribute ID (references the `attributes` table)
+- **Value**: String representation of the attribute value
+
+### Full Product Entity
+
+```csharp Product.cs
+public class Product : BaseEntity
+{
+    public string Name { get; private set; } = null!;
+    public decimal Price { get; private set; }
+    public int CategoryId { get; private set; }
+    public int BrandId { get; private set; }
+    public int CountryId { get; private set; }
+    public string SKU { get; private set; } = null!;
+    public string? Description { get; private set; }
+    public string? BaseUnit { get; private set; } = "pcs";
+    public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; private set; } = DateTime.UtcNow;
+    public bool IsActive { get; private set; } = true;
+    
+    // Dynamic metadata stored as JSONB
+    public Dictionary<int, string> Metadata { get; private set; } = new();
+
+    public void SetMetadata(Dictionary<int, string> metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        Metadata = metadata;
+        Touch();
+    }
+}
+```
+
+## Database Configuration
+
+The metadata field is configured in Entity Framework Core to use PostgreSQL's JSONB type:
+
+```csharp ProductConfiguration.cs:21-33
+builder.Property(p => p.Metadata)
+    .HasColumnType("jsonb")
+    .HasConversion(
+        v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+        v => JsonSerializer.Deserialize<Dictionary<int, string>>(v, (JsonSerializerOptions?)null)
+             ?? new())
+    .Metadata.SetValueComparer(
+        new ValueComparer<Dictionary<int, string>>(
+            (d1, d2) => d1!.SequenceEqual(d2!),
+            d => d.Aggregate(0, (a, v) =>
+                HashCode.Combine(a, v.Key.GetHashCode(), v.Value.GetHashCode())),
+            d => d.ToDictionary(entry => entry.Key, entry => entry.Value)
+        ));
+```
+
+<Accordion title="Configuration Breakdown">
+  - **HasColumnType("jsonb")**: Specifies PostgreSQL JSONB storage
+  - **HasConversion**: Serializes/deserializes between C# Dictionary and JSON
+  - **SetValueComparer**: Enables EF Core change tracking for dictionary modifications
+  - **HasDefaultValueSql**: Sets empty JSON object `{}` as default value
+</Accordion>
+
+## Metadata Structure
+
+Each attribute in the system is defined by the `MetadataAttribute` record:
+
+```csharp MetadataAttribute.cs
+public record MetadataAttribute(
+    int AttributeId,
+    string Name,
+    AttributeDataType DataType,
+    string? Unit,
+    decimal? MinValue,
+    decimal? MaxValue,
+    bool IsRequired);
+```
+
+### Supported Data Types
+
+<Tabs>
+  <Tab title="Integer">
+    Whole numbers with optional min/max validation.
+    
+    Example: Age restriction, shelf life days
+  </Tab>
+  <Tab title="Decimal">
+    Floating-point numbers rounded to 2 decimal places.
+    
+    Example: Fat content (3.5%), alcohol percentage (40.0%)
+  </Tab>
+  <Tab title="Boolean">
+    True/false values, normalized to "true" or "false" strings.
+    
+    Example: Organic certification, gluten-free
+  </Tab>
+  <Tab title="String">
+    Free-form text values.
+    
+    Example: Origin country, production method
+  </Tab>
+</Tabs>
+
+## Benefits
+
+### Flexibility
+Add new product attributes without database migrations or code changes. Simply insert new attribute definitions and associate them with categories.
+
+### Performance
+JSONB is stored in a binary format that supports:
+- Fast indexing with GIN indexes
+- Direct querying without deserialization
+- Efficient storage with compression
+
+### Type Safety
+Despite storing data as JSON, the validation pipeline ensures type correctness and range validation before persistence.
+
+## Example Usage
+
+Creating a product with dynamic metadata:
+
+```json
+{
+  "name": "Whole Milk",
+  "price": 3.99,
+  "categoryId": 15,
+  "brandId": 3,
+  "countryId": 1,
+  "sku": "MILK-001",
+  "attributes": [
+    {
+      "id": 1,
+      "value": "3.5"
+    },
+    {
+      "id": 2,
+      "value": "1000"
+    }
+  ]
+}
+```
+
+The attributes are validated, normalized, and stored in the `metadata` JSONB column:
+
+```json
+{
+  "1": "3.5",
+  "2": "1000"
+}
+```
+
+<Info>
+  The validation and normalization process is explained in detail in the [Validation Pipeline](/concepts/validation-pipeline) page.
+</Info>
+
+## Related Concepts
+
+- [Category Hierarchy](/concepts/category-hierarchy) - Learn how attributes are inherited from parent categories
+- [Validation Pipeline](/concepts/validation-pipeline) - Understand how metadata is validated and normalized
+- [Product Management](/api/products/create) - API reference for creating products with metadata

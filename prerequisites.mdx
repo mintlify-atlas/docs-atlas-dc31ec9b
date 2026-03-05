@@ -1,0 +1,304 @@
+---
+title: Prerequisites
+description: Required tools and versions to run GroceryStore API
+---
+
+## Required Software
+
+Before getting started with GroceryStore API, ensure you have the following tools installed on your system.
+
+### .NET 10 SDK
+
+GroceryStore API is built with .NET 10, the latest version of the .NET platform.
+
+<Note>
+  .NET 10 is required. Earlier versions (including .NET 8 or 9) are not compatible with this project.
+</Note>
+
+**Installation:**
+
+<CodeGroup>
+```bash Windows
+# Download from Microsoft
+winget install Microsoft.DotNet.SDK.10
+
+# Or download installer from:
+# https://dotnet.microsoft.com/download/dotnet/10.0
+```
+
+```bash macOS
+# Using Homebrew
+brew install dotnet@10
+
+# Or download installer from:
+# https://dotnet.microsoft.com/download/dotnet/10.0
+```
+
+```bash Linux
+# Ubuntu/Debian
+wget https://dot.net/v1/dotnet-install.sh
+sudo chmod +x dotnet-install.sh
+./dotnet-install.sh --channel 10.0
+
+# Or use package manager:
+# https://learn.microsoft.com/dotnet/core/install/linux
+```
+</CodeGroup>
+
+**Verify Installation:**
+
+```bash
+dotnet --version
+# Should output: 10.0.x
+```
+
+### PostgreSQL
+
+GroceryStore API uses PostgreSQL as its primary database, leveraging JSONB for flexible product metadata.
+
+**Minimum Version:** PostgreSQL 12 or higher (PostgreSQL 14+ recommended)
+
+<Note>
+  PostgreSQL 14 or higher is recommended for optimal JSONB performance and query capabilities.
+</Note>
+
+**Installation:**
+
+<CodeGroup>
+```bash Windows
+# Download installer from:
+# https://www.postgresql.org/download/windows/
+
+# Or using Chocolatey:
+choco install postgresql
+```
+
+```bash macOS
+# Using Homebrew
+brew install postgresql@16
+brew services start postgresql@16
+```
+
+```bash Linux
+# Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# Start PostgreSQL service
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+</CodeGroup>
+
+**Verify Installation:**
+
+```bash
+psql --version
+# Should output: psql (PostgreSQL) 12.x or higher
+```
+
+**Post-Installation Setup:**
+
+Create a PostgreSQL user and set password (if needed):
+
+```bash
+# Connect to PostgreSQL
+sudo -u postgres psql
+
+# Create user (if not exists)
+CREATE USER postgres WITH PASSWORD 'your_password';
+
+# Grant privileges
+ALTER USER postgres CREATEDB;
+
+# Exit
+\q
+```
+
+### Entity Framework Core Tools
+
+The EF Core CLI tools are required for running database migrations.
+
+**Installation:**
+
+```bash
+dotnet tool install --global dotnet-ef
+```
+
+**Verify Installation:**
+
+```bash
+dotnet ef --version
+# Should output: Entity Framework Core .NET Command-line Tools 10.0.x
+```
+
+<Warning>
+  If you already have an older version of `dotnet-ef`, update it:
+  ```bash
+  dotnet tool update --global dotnet-ef
+  ```
+</Warning>
+
+## Recommended Tools
+
+While not strictly required, these tools enhance your development experience:
+
+### Code Editor / IDE
+
+<CardGroup cols={2}>
+  <Card title="Visual Studio 2025" icon="microsoft">
+    Full-featured IDE with excellent .NET debugging and IntelliSense support. Choose the Community (free) or Professional edition.
+  </Card>
+  
+  <Card title="Visual Studio Code" icon="code">
+    Lightweight editor with C# extension. Install the C# Dev Kit extension for best experience.
+  </Card>
+  
+  <Card title="JetBrains Rider" icon="keyboard">
+    Premium IDE with advanced refactoring and testing capabilities. Requires license.
+  </Card>
+  
+  <Card title="Visual Studio for Mac" icon="apple">
+    Native macOS IDE for .NET development (being sunset in favor of VS Code).
+  </Card>
+</CardGroup>
+
+### Database Management
+
+Tools for managing and querying PostgreSQL:
+
+- **pgAdmin 4** - Web-based PostgreSQL administration
+- **DBeaver** - Universal database tool with PostgreSQL support
+- **DataGrip** - JetBrains database IDE
+- **Azure Data Studio** - Cross-platform database tool with PostgreSQL extension
+
+### API Testing
+
+<Note>
+  GroceryStore API includes built-in Scalar documentation (available at `/scalar/v1` in development), which provides interactive API testing.
+</Note>
+
+Additional API testing tools:
+
+- **Postman** - Popular API client with collections and environment support
+- **Insomnia** - Lightweight REST client
+- **Thunder Client** - VS Code extension for API testing
+- **curl** - Command-line HTTP client (pre-installed on most systems)
+
+### Git
+
+For cloning the repository and version control:
+
+```bash
+# Verify Git is installed
+git --version
+
+# Install if needed:
+# Windows: https://git-scm.com/download/win
+# macOS: brew install git
+# Linux: sudo apt install git
+```
+
+## System Requirements
+
+### Minimum Requirements
+
+- **OS:** Windows 10/11, macOS 11+, or Linux (Ubuntu 20.04+, Debian 11+, Fedora 33+)
+- **RAM:** 4 GB (8 GB recommended)
+- **Disk Space:** 2 GB for SDK and tools
+- **CPU:** x64 or ARM64 processor
+
+### Recommended Configuration
+
+- **OS:** Latest version of Windows 11, macOS 14+, or Ubuntu 22.04 LTS
+- **RAM:** 16 GB or more
+- **Disk Space:** SSD with 10+ GB free space
+- **CPU:** Multi-core x64 processor (Intel i5/Ryzen 5 or better)
+
+## Package Dependencies
+
+The following NuGet packages are automatically installed when building the project:
+
+### Core Dependencies
+
+```xml
+<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+<PackageReference Include="Npgsql" Version="10.0.1" />
+```
+
+### Data Access
+
+```xml
+<PackageReference Include="Dapper" Version="2.1.66" />
+<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0" />
+<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.0" />
+```
+
+### Validation & Services
+
+```xml
+<PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+<PackageReference Include="ServiceScan.SourceGenerator" Version="2.4.1" />
+```
+
+### API Documentation
+
+```xml
+<PackageReference Include="Scalar.AspNetCore" Version="2.12.5" />
+```
+
+<Note>
+  All dependencies are defined in `GroceryStore.csproj` and will be automatically restored when you build the project.
+</Note>
+
+## Verify Your Environment
+
+Run this checklist to ensure everything is properly installed:
+
+<Steps>
+  <Step title="Check .NET SDK">
+    ```bash
+    dotnet --version
+    # Expected: 10.0.x
+    ```
+  </Step>
+  
+  <Step title="Check PostgreSQL">
+    ```bash
+    psql --version
+    # Expected: psql (PostgreSQL) 12.x or higher
+    ```
+  </Step>
+  
+  <Step title="Check EF Core Tools">
+    ```bash
+    dotnet ef --version
+    # Expected: 10.0.x
+    ```
+  </Step>
+  
+  <Step title="Test PostgreSQL Connection">
+    ```bash
+    psql -h localhost -U postgres -d postgres
+    # Should connect successfully
+    ```
+  </Step>
+  
+  <Step title="Check Git">
+    ```bash
+    git --version
+    # Expected: git version 2.x or higher
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+Once you've verified all prerequisites are met, proceed to the [Quickstart](/quickstart) guide to get GroceryStore API running on your local machine.
+
+<CardGroup cols={1}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Follow step-by-step instructions to clone, configure, and run the API locally
+  </Card>
+</CardGroup>

@@ -1,0 +1,142 @@
+---
+title: 'List Products'
+api: 'GET /api/v1/admin/products'
+---
+
+Retrieves all active products with their associated attributes and metadata.
+
+## Response
+
+Returns an array of product objects with their complete details.
+
+<ResponseField name="Id" type="integer">
+  The unique identifier of the product.
+</ResponseField>
+
+<ResponseField name="Name" type="string">
+  The name of the product.
+</ResponseField>
+
+<ResponseField name="Price" type="decimal">
+  The price of the product.
+</ResponseField>
+
+<ResponseField name="CategoryId" type="integer">
+  The ID of the product's category.
+</ResponseField>
+
+<ResponseField name="BrandId" type="integer">
+  The ID of the product's brand.
+</ResponseField>
+
+<ResponseField name="CountryId" type="integer">
+  The ID of the product's country of origin.
+</ResponseField>
+
+<ResponseField name="Sku" type="string">
+  The SKU (Stock Keeping Unit) identifier.
+</ResponseField>
+
+<ResponseField name="Description" type="string">
+  The product description.
+</ResponseField>
+
+<ResponseField name="BaseUnit" type="string">
+  The base unit for the product (e.g., "kg", "L", "pcs").
+</ResponseField>
+
+<ResponseField name="Metadata" type="array">
+  An array of product attributes and their values.
+  
+  <Expandable title="Metadata Object">
+    <ResponseField name="Name" type="string">
+      The name of the attribute.
+    </ResponseField>
+    
+    <ResponseField name="Value" type="string">
+      The value of the attribute.
+    </ResponseField>
+    
+    <ResponseField name="Unit" type="string">
+      The unit of measurement for the attribute, if applicable.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Request Example
+
+```bash
+curl -X GET "https://api.example.com/api/v1/admin/products" \
+  -H "Content-Type: application/json"
+```
+
+## Response Example
+
+<ResponseExample>
+```json 200 OK
+[
+  {
+    "Id": 42,
+    "Name": "Organic Milk",
+    "Price": 4.99,
+    "CategoryId": 5,
+    "BrandId": 12,
+    "CountryId": 1,
+    "Sku": "GRO-5-00042",
+    "Description": "Fresh organic whole milk",
+    "BaseUnit": "L",
+    "Metadata": [
+      {
+        "Name": "Certification",
+        "Value": "Organic",
+        "Unit": null
+      },
+      {
+        "Name": "Volume",
+        "Value": "1",
+        "Unit": "L"
+      }
+    ]
+  },
+  {
+    "Id": 43,
+    "Name": "Whole Wheat Bread",
+    "Price": 3.49,
+    "CategoryId": 8,
+    "BrandId": 7,
+    "CountryId": 1,
+    "Sku": "GRO-8-00043",
+    "Description": "Freshly baked whole wheat bread",
+    "BaseUnit": "pcs",
+    "Metadata": [
+      {
+        "Name": "Type",
+        "Value": "Whole Wheat",
+        "Unit": null
+      },
+      {
+        "Name": "Weight",
+        "Value": "500",
+        "Unit": "g"
+      }
+    ]
+  }
+]
+```
+
+```json 403 Forbidden
+{}
+```
+</ResponseExample>
+
+## Status Codes
+
+- `200 OK` - Successfully retrieved product list
+- `403 Forbidden` - Insufficient permissions to view products
+
+## Notes
+
+- This endpoint only returns **active** products (where `IsActive = true`)
+- Soft-deleted products are automatically excluded from the results
+- The metadata array contains denormalized attribute information with names and units for easy consumption
+- Products are returned with all their attributes expanded for comprehensive product information

@@ -1,0 +1,109 @@
+---
+title: "Get Category Metadata"
+api: "GET /api/v1/admin/categories/{categoryId}/metadata"
+description: "Retrieve attribute metadata schema for a specific category (recursive)"
+---
+
+This endpoint returns the complete metadata schema for a category, including all attributes inherited from parent categories. The response is cached for 30 minutes to improve performance.
+
+## Request
+
+<ParamField path="categoryId" type="integer" required>
+  The unique identifier of the category. Must be a positive integer (minimum value: 1)
+</ParamField>
+
+## Response
+
+Returns an array of metadata attribute objects with the following structure:
+
+<ResponseField name="attributeId" type="integer" required>
+  Unique identifier for the attribute
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Display name of the attribute (e.g., "Weight", "Expiration Date")
+</ResponseField>
+
+<ResponseField name="dataType" type="string" required>
+  Data type of the attribute value. Possible values:
+  - `String`: Text values
+  - `Integer`: Whole numbers
+  - `Decimal`: Decimal numbers
+  - `DateTime`: Date and time values
+  - `Boolean`: True/false values
+</ResponseField>
+
+<ResponseField name="unit" type="string | null">
+  Unit of measurement for the attribute (e.g., "kg", "ml", "°C"). Null if no unit applies
+</ResponseField>
+
+<ResponseField name="minValue" type="decimal | null">
+  Minimum allowed value for numeric attributes. Null if no minimum is defined
+</ResponseField>
+
+<ResponseField name="maxValue" type="decimal | null">
+  Maximum allowed value for numeric attributes. Null if no maximum is defined
+</ResponseField>
+
+<ResponseField name="isRequired" type="boolean" required>
+  Whether this attribute must be specified when creating products in this category
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET "https://api.example.com/api/v1/admin/categories/5/metadata" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+## Example Response
+
+```json
+[
+  {
+    "attributeId": 101,
+    "name": "Weight",
+    "dataType": "Decimal",
+    "unit": "kg",
+    "minValue": 0.001,
+    "maxValue": 1000.0,
+    "isRequired": true
+  },
+  {
+    "attributeId": 102,
+    "name": "ExpirationDate",
+    "dataType": "DateTime",
+    "unit": null,
+    "minValue": null,
+    "maxValue": null,
+    "isRequired": true
+  },
+  {
+    "attributeId": 103,
+    "name": "IsOrganic",
+    "dataType": "Boolean",
+    "unit": null,
+    "minValue": null,
+    "maxValue": null,
+    "isRequired": false
+  }
+]
+```
+
+## Status Codes
+
+<ResponseField name="200" type="OK">
+  Successfully retrieved the category metadata schema
+</ResponseField>
+
+<ResponseField name="400" type="Bad Request">
+  Invalid category ID provided (must be a positive integer)
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  Category with the specified ID does not exist
+</ResponseField>
+
+## Caching
+
+This endpoint implements server-side caching with a 30-minute TTL (time-to-live). Subsequent requests for the same category within this window will return cached results for improved performance.

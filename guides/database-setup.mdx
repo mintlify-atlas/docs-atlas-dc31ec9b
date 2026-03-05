@@ -1,0 +1,204 @@
+---
+title: Database Setup
+description: Configure PostgreSQL, run migrations, and seed initial data for the GroceryStore API
+---
+
+This guide walks you through setting up the PostgreSQL database for the GroceryStore API.
+
+## Prerequisites
+
+- PostgreSQL 12+ installed and running
+- .NET 10 SDK installed
+- Entity Framework Core CLI tools
+
+## Step-by-Step Setup
+
+<Steps>
+  <Step title="Configure Connection String">
+    Update the `ConnectionStrings` section in `appsettings.json` or use user secrets:
+
+    ```json
+    {
+      "ConnectionStrings": {
+        "DefaultConnection": "Host=localhost;Database=grocery_db;Username=postgres;Password=YourPassword"
+      }
+    }
+    ```
+
+    <Tip>
+      For development, use **user secrets** to avoid committing credentials:
+      ```bash
+      dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Database=grocery_db;Username=postgres;Password=YourPassword"
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Install EF Core Tools">
+    If you haven't already installed the Entity Framework Core CLI tools:
+
+    ```bash
+    dotnet tool install --global dotnet-ef
+    ```
+  </Step>
+
+  <Step title="Run Migrations">
+    Apply the database migrations to create all tables and schema:
+
+    ```bash
+    dotnet ef database update
+    ```
+
+    This will create the following tables:
+    - `products` - Product catalog with JSONB metadata
+    - `categories` - Hierarchical category structure
+    - `attributes` - Product attribute definitions
+    - `category_attributes` - Category-attribute relationships
+    - `brands` - Product brands
+    - `countries` - Country references
+    - `product_batches` - Inventory batch tracking
+  </Step>
+
+  <Step title="Verify Seed Data">
+    The migration automatically seeds the database with:
+
+    **Product Attributes:**
+    - Fat Content (Decimal, 0-100%)
+    - Weight (Integer, 0-10000g)
+    - Volume (Integer, 0-10000ml)
+    - Milk Source (String)
+    - Alcohol Content (Decimal, 0-100%)
+    - Organic (Boolean)
+    - And more...
+
+    **Categories:**
+    - Dairy (with subcategories: Milk, Cheese, Yogurt, etc.)
+    - Alcohol (Beer, Wine, Spirits)
+    - Meat (Beef, Pork, Poultry)
+    - And more...
+
+    **Brands and Countries:**
+    - Generic, Coca-Cola, Pepsi, etc.
+    - Multiple countries with ISO codes
+  </Step>
+
+  <Step title="Start the Application">
+    Run the GroceryStore API:
+
+    ```bash
+    dotnet run --project GroceryStore
+    ```
+
+    The API will start on `http://localhost:5000` (or your configured port).
+  </Step>
+
+  <Step title="Access API Documentation">
+    Navigate to the Scalar API documentation:
+
+    ```
+    http://localhost:5000/scalar/v1
+    ```
+
+    This interactive documentation allows you to explore and test all endpoints.
+  </Step>
+</Steps>
+
+## Database Schema Overview
+
+### Key Tables
+
+<AccordionGroup>
+  <Accordion title="products">
+    Stores product information with dynamic metadata in JSONB format.
+
+    **Key Columns:**
+    - `id` - Primary key
+    - `name` - Product name (max 50 chars)
+    - `price` - Decimal(18,2)
+    - `category_id` - Foreign key to categories
+    - `brand_id` - Foreign key to brands
+    - `country_id` - Foreign key to countries
+    - `sku` - Unique SKU (auto-generated)
+    - `metadata` - JSONB column for dynamic attributes
+    - `is_active` - Soft delete flag (default: true)
+    - `created_at`, `updated_at` - Timestamps
+  </Accordion>
+
+  <Accordion title="categories">
+    Hierarchical category structure with self-referencing parent_id.
+
+    **Key Columns:**
+    - `id` - Primary key
+    - `name` - Category name (max 50 chars)
+    - `parent_id` - Nullable foreign key to parent category
+  </Accordion>
+
+  <Accordion title="category_attributes">
+    Many-to-many relationship between categories and attributes.
+
+    **Key Columns:**
+    - `category_id` - Composite key
+    - `attribute_id` - Composite key
+    - `is_required` - Whether attribute is mandatory for this category
+  </Accordion>
+</AccordionGroup>
+
+## Naming Conventions
+
+The database uses **snake_case** naming for PostgreSQL compatibility:
+- Tables: `products`, `category_attributes`
+- Columns: `created_at`, `parent_id`, `is_active`
+- Foreign Keys: `f_k_products_categories_category_id`
+
+This is handled automatically by the `ModelBuilder` extensions.
+
+## Delete Behavior
+
+<Warning>
+  All foreign key relationships use **Restrict** delete behavior to prevent accidental cascading deletions.
+  
+  Products use **soft deletion** via the `is_active` flag. Global query filters automatically exclude inactive products.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    Ensure PostgreSQL is running:
+    ```bash
+    # Linux/Mac
+    sudo service postgresql status
+    
+    # Windows (in Administrator PowerShell)
+    Get-Service postgresql*
+    ```
+  </Accordion>
+
+  <Accordion title="Migration fails">
+    Drop and recreate the database:
+    ```bash
+    dotnet ef database drop
+    dotnet ef database update
+    ```
+    
+    <Warning>This will delete all data!</Warning>
+  </Accordion>
+
+  <Accordion title="Seed data missing">
+    The seed data is part of the migration. If categories or attributes are missing, ensure you're running the latest migration:
+    ```bash
+    dotnet ef migrations list
+    dotnet ef database update
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Product Management" icon="box" href="/guides/product-management">
+    Learn how to create and manage products via the API
+  </Card>
+  <Card title="Category Metadata" icon="tags" href="/guides/category-metadata">
+    Understand how category metadata and validation works
+  </Card>
+</CardGroup>

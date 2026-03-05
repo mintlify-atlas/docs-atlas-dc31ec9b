@@ -1,0 +1,241 @@
+---
+title: Error Handling
+description: Understanding error responses and status codes in the GroceryStore API
+---
+
+The GroceryStore API uses standard HTTP status codes and provides detailed error messages to help you understand and resolve issues.
+
+## HTTP Status Codes
+
+The API uses the following HTTP status codes:
+
+| Status Code | Description |
+|-------------|-------------|
+| `200 OK` | Request succeeded |
+| `201 Created` | Resource successfully created |
+| `204 No Content` | Resource successfully deleted |
+| `400 Bad Request` | Invalid request data or validation errors |
+| `403 Forbidden` | Authentication required or insufficient permissions |
+| `404 Not Found` | Resource not found |
+
+## Error Response Formats
+
+The API returns errors in different formats depending on the error type:
+
+### Validation Errors
+
+Validation errors from FluentValidation are returned as an array of error objects:
+
+```json
+[
+  {
+    "propertyName": "Name",
+    "errorMessage": "Name is required",
+    "attemptedValue": null,
+    "severity": 0,
+    "errorCode": "NotEmptyValidator"
+  },
+  {
+    "propertyName": "Price",
+    "errorMessage": "Price must be greater than or equal to 0",
+    "attemptedValue": -10,
+    "severity": 0,
+    "errorCode": "GreaterThanOrEqualValidator"
+  }
+]
+```
+
+### Validation Problem Details
+
+Some endpoints return validation errors using the Problem Details format:
+
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+  "title": "One or more validation errors occurred.",
+  "status": 400,
+  "errors": {
+    "NewName.Value": [
+      "Maximum length of Name is 50"
+    ],
+    "NewPrice.Value": [
+      "Price must be greater than or equal to 0"
+    ]
+  }
+}
+```
+
+### Custom Validation Errors
+
+Attribute validation errors are returned in a custom format:
+
+```json
+{
+  "errors": {
+    "attributeId": [
+      "error message"
+    ]
+  }
+}
+```
+
+### Simple Error Messages
+
+Some errors return a plain text message:
+
+```json
+"Category not found"
+```
+
+## Common Validation Rules
+
+### Product Fields
+
+| Field | Rules |
+|-------|-------|
+| `Name` | Required, maximum length 50 characters |
+| `Price` | Must be greater than or equal to 0 |
+| `CategoryId` | Required, must be greater than 0 |
+| `BrandId` | Must be greater than 0 |
+| `CountryId` | Must be greater than 0 |
+| `Attributes` | Required, cannot be empty |
+
+### Attribute Fields
+
+| Field | Rules |
+|-------|-------|
+| `Id` | Must be greater than 0 |
+| `Value` | Required, cannot be empty |
+
+<Note>
+Attributes must have unique IDs. Duplicate attribute IDs will result in the error: "Duplicate attributeId in request"
+</Note>
+
+## Error Examples
+
+### Missing Required Field
+
+**Request:**
+```json
+POST /api/v1/admin/products
+{
+  "price": 10.99,
+  "categoryId": 1,
+  "brandId": 1,
+  "countryId": 1,
+  "attributes": []
+}
+```
+
+**Response:** `400 Bad Request`
+```json
+[
+  {
+    "propertyName": "Name",
+    "errorMessage": "Name is required",
+    "attemptedValue": null,
+    "severity": 0,
+    "errorCode": "NotNullValidator"
+  },
+  {
+    "propertyName": "Attributes",
+    "errorMessage": "Attributes are required",
+    "attemptedValue": [],
+    "severity": 0,
+    "errorCode": "NotEmptyValidator"
+  }
+]
+```
+
+### Invalid Field Value
+
+**Request:**
+```json
+POST /api/v1/admin/products
+{
+  "name": "Apple",
+  "price": -5.00,
+  "categoryId": 0,
+  "brandId": 1,
+  "countryId": 1,
+  "attributes": [
+    { "id": 1, "value": "Red" }
+  ]
+}
+```
+
+**Response:** `400 Bad Request`
+```json
+[
+  {
+    "propertyName": "Price",
+    "errorMessage": "Price must be greater than or equal to 0",
+    "attemptedValue": -5.00,
+    "severity": 0,
+    "errorCode": "GreaterThanOrEqualValidator"
+  },
+  {
+    "propertyName": "CategoryId",
+    "errorMessage": "CategoryId must be greater than 0",
+    "attemptedValue": 0,
+    "severity": 0,
+    "errorCode": "GreaterThanValidator"
+  }
+]
+```
+
+### Resource Not Found
+
+**Request:**
+```http
+PATCH /api/v1/admin/products/99999
+```
+
+**Response:** `404 Not Found`
+
+No response body is returned for 404 errors.
+
+### Duplicate Attribute IDs
+
+**Request:**
+```json
+POST /api/v1/admin/products
+{
+  "name": "Apple",
+  "price": 2.99,
+  "categoryId": 1,
+  "brandId": 1,
+  "countryId": 1,
+  "attributes": [
+    { "id": 1, "value": "Red" },
+    { "id": 1, "value": "Large" }
+  ]
+}
+```
+
+**Response:** `400 Bad Request`
+```json
+[
+  {
+    "propertyName": "Attributes",
+    "errorMessage": "Duplicate attributeId in request",
+    "attemptedValue": [...],
+    "severity": 0,
+    "errorCode": "PredicateValidator"
+  }
+]
+```
+
+## Best Practices
+
+<Tip>
+Always check the HTTP status code first to determine the type of error, then parse the response body for details.
+</Tip>
+
+1. **Handle Multiple Error Formats**: The API may return errors in different formats. Build your error handling to accommodate both array-based validation errors and Problem Details formats.
+
+2. **Validate Before Sending**: Implement client-side validation matching the API's rules to reduce round-trip errors.
+
+3. **Log Error Details**: The `errorCode` field can help you identify which validation rule failed.
+
+4. **Check Property Names**: Use the `propertyName` field to map errors back to specific form fields in your UI.

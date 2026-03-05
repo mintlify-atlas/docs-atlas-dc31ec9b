@@ -1,0 +1,181 @@
+---
+title: 'Update Product'
+api: 'PATCH /api/v1/admin/products/{productId}'
+---
+
+Updates an existing product by its ID. Only the fields provided in the request will be updated.
+
+## Path Parameters
+
+<ParamField path="productId" type="integer" required>
+  The ID of the product to update. Must be greater than or equal to 1.
+</ParamField>
+
+## Request Body
+
+All fields are optional. Only include the fields you want to update. The API uses an `Optional` pattern, so omitted fields will not be modified.
+
+<ParamField body="NewName" type="Optional<string>">
+  The new name for the product. If provided, cannot be null or empty and must be maximum 50 characters.
+  
+  <Expandable title="Optional Type">
+    The `Optional` type allows distinguishing between "not provided" and "set to null". To update a field, wrap it in the Optional structure:
+    ```json
+    { "HasValue": true, "Value": "New Product Name" }
+    ```
+    Or use simplified JSON:
+    ```json
+    { "NewName": "New Product Name" }
+    ```
+  </Expandable>
+</ParamField>
+
+<ParamField body="NewDescription" type="Optional<string>">
+  The new description for the product. Can be set to null.
+</ParamField>
+
+<ParamField body="NewPrice" type="Optional<decimal>">
+  The new price for the product. If provided, must be >= 0.
+</ParamField>
+
+<ParamField body="NewCategoryId" type="Optional<integer>">
+  The new category ID. If provided, must be > 0.
+</ParamField>
+
+<ParamField body="NewBaseUnit" type="Optional<string>">
+  The new base unit for the product (e.g., "kg", "lbs", "pcs").
+</ParamField>
+
+## Response
+
+Returns the complete updated Product object.
+
+<ResponseField name="Id" type="integer">
+  The unique identifier of the product.
+</ResponseField>
+
+<ResponseField name="Name" type="string">
+  The updated name of the product.
+</ResponseField>
+
+<ResponseField name="Price" type="decimal">
+  The updated price.
+</ResponseField>
+
+<ResponseField name="CategoryId" type="integer">
+  The updated category ID.
+</ResponseField>
+
+<ResponseField name="BrandId" type="integer">
+  The brand ID (cannot be updated via this endpoint).
+</ResponseField>
+
+<ResponseField name="CountryId" type="integer">
+  The country ID (cannot be updated via this endpoint).
+</ResponseField>
+
+<ResponseField name="SKU" type="string">
+  The SKU (Stock Keeping Unit).
+</ResponseField>
+
+<ResponseField name="Description" type="string">
+  The updated description.
+</ResponseField>
+
+<ResponseField name="BaseUnit" type="string">
+  The updated base unit.
+</ResponseField>
+
+<ResponseField name="CreatedAt" type="string">
+  ISO 8601 timestamp when the product was originally created.
+</ResponseField>
+
+<ResponseField name="UpdatedAt" type="string">
+  ISO 8601 timestamp when the product was last updated.
+</ResponseField>
+
+<ResponseField name="IsActive" type="boolean">
+  Whether the product is active.
+</ResponseField>
+
+<ResponseField name="Metadata" type="object">
+  The product's attribute metadata.
+</ResponseField>
+
+## Request Example
+
+```bash
+curl -X PATCH "https://api.example.com/api/v1/admin/products/42" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "NewName": "Premium Organic Milk",
+    "NewPrice": 5.49
+  }'
+```
+
+## Response Example
+
+<ResponseExample>
+```json 201 Created
+{
+  "Id": 42,
+  "Name": "Premium Organic Milk",
+  "Price": 5.49,
+  "CategoryId": 5,
+  "BrandId": 12,
+  "CountryId": 1,
+  "SKU": "GRO-5-00042",
+  "Description": "Fresh organic whole milk",
+  "BaseUnit": "L",
+  "CreatedAt": "2026-03-05T10:30:00Z",
+  "UpdatedAt": "2026-03-05T14:22:15Z",
+  "IsActive": true,
+  "Metadata": {
+    "1": "organic",
+    "3": "1l"
+  }
+}
+```
+
+```json 404 Not Found
+{}
+```
+
+```json 400 Bad Request - Validation Problem
+{
+  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+  "title": "One or more validation errors occurred.",
+  "status": 400,
+  "errors": {
+    "NewPrice.Value": [
+      "Price must be greater than or equal to 0"
+    ]
+  }
+}
+```
+
+```json 403 Forbidden
+{}
+```
+</ResponseExample>
+
+## Validation Rules
+
+- **NewName**: If provided, cannot be null or empty, maximum 50 characters
+- **NewPrice**: If provided, must be >= 0 and not empty
+- **NewCategoryId**: If provided, must be > 0 and not empty
+- **NewDescription**: Can be null or any string value
+- **NewBaseUnit**: Can be null or any string value
+
+## Status Codes
+
+- `201 Created` - Product successfully updated (returns updated resource)
+- `400 Bad Request` - Validation error
+- `403 Forbidden` - Insufficient permissions
+- `404 Not Found` - Product with the specified ID does not exist
+
+## Notes
+
+- This is a partial update endpoint (PATCH), so you only need to send the fields you want to change
+- The `UpdatedAt` timestamp is automatically updated when any field changes
+- Some fields like `BrandId`, `CountryId`, and `SKU` cannot be updated through this endpoint

@@ -1,0 +1,198 @@
+---
+title: 'Create Product'
+api: 'POST /api/v1/admin/products'
+---
+
+Creates a new product in the grocery store inventory with associated attributes.
+
+## Request Body
+
+<ParamField body="Name" type="string" required>
+  The name of the product. Maximum length is 50 characters.
+</ParamField>
+
+<ParamField body="CategoryId" type="integer" required>
+  The ID of the category this product belongs to. Must be greater than 0.
+</ParamField>
+
+<ParamField body="BrandId" type="integer" required>
+  The ID of the brand for this product. Must be greater than 0.
+</ParamField>
+
+<ParamField body="CountryId" type="integer" required>
+  The ID of the country of origin for this product. Must be greater than 0.
+</ParamField>
+
+<ParamField body="Price" type="decimal" required>
+  The price of the product. Must be greater than or equal to 0.
+</ParamField>
+
+<ParamField body="Description" type="string">
+  An optional description of the product.
+</ParamField>
+
+<ParamField body="BaseUnit" type="string">
+  The base unit for the product (e.g., "kg", "lbs", "pcs"). Defaults to "pcs" if not provided.
+</ParamField>
+
+<ParamField body="Attributes" type="array" required>
+  A list of product attributes. Each attribute must have a unique ID.
+  
+  <Expandable title="Attribute Object">
+    <ParamField body="Id" type="integer" required>
+      The ID of the attribute. Must be greater than 0 and unique within the list.
+    </ParamField>
+    
+    <ParamField body="Value" type="string" required>
+      The value of the attribute. Cannot be empty.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Response
+
+<ResponseField name="Id" type="integer">
+  The auto-generated unique identifier for the created product.
+</ResponseField>
+
+<ResponseField name="Name" type="string">
+  The name of the product.
+</ResponseField>
+
+<ResponseField name="Price" type="decimal">
+  The price of the product.
+</ResponseField>
+
+<ResponseField name="CategoryId" type="integer">
+  The category ID.
+</ResponseField>
+
+<ResponseField name="BrandId" type="integer">
+  The brand ID.
+</ResponseField>
+
+<ResponseField name="CountryId" type="integer">
+  The country ID.
+</ResponseField>
+
+<ResponseField name="SKU" type="string">
+  The auto-generated SKU (Stock Keeping Unit) for the product.
+</ResponseField>
+
+<ResponseField name="Description" type="string">
+  The product description.
+</ResponseField>
+
+<ResponseField name="BaseUnit" type="string">
+  The base unit for the product.
+</ResponseField>
+
+<ResponseField name="CreatedAt" type="string">
+  ISO 8601 timestamp when the product was created.
+</ResponseField>
+
+<ResponseField name="UpdatedAt" type="string">
+  ISO 8601 timestamp when the product was last updated.
+</ResponseField>
+
+<ResponseField name="IsActive" type="boolean">
+  Whether the product is active. Defaults to true.
+</ResponseField>
+
+<ResponseField name="Metadata" type="object">
+  A dictionary of attribute IDs to their normalized values.
+</ResponseField>
+
+## Request Example
+
+```bash
+curl -X POST "https://api.example.com/api/v1/admin/products" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "Name": "Organic Milk",
+    "CategoryId": 5,
+    "BrandId": 12,
+    "CountryId": 1,
+    "Price": 4.99,
+    "Description": "Fresh organic whole milk",
+    "BaseUnit": "L",
+    "Attributes": [
+      {
+        "Id": 1,
+        "Value": "Organic"
+      },
+      {
+        "Id": 3,
+        "Value": "1L"
+      }
+    ]
+  }'
+```
+
+## Response Example
+
+<ResponseExample>
+```json 201 Created
+{
+  "Id": 42,
+  "Name": "Organic Milk",
+  "Price": 4.99,
+  "CategoryId": 5,
+  "BrandId": 12,
+  "CountryId": 1,
+  "SKU": "GRO-5-00042",
+  "Description": "Fresh organic whole milk",
+  "BaseUnit": "L",
+  "CreatedAt": "2026-03-05T10:30:00Z",
+  "UpdatedAt": "2026-03-05T10:30:00Z",
+  "IsActive": true,
+  "Metadata": {
+    "1": "organic",
+    "3": "1l"
+  }
+}
+```
+
+```json 400 Bad Request
+[
+  {
+    "PropertyName": "Name",
+    "ErrorMessage": "Name is required",
+    "AttemptedValue": null
+  }
+]
+```
+
+```json 400 Bad Request - Duplicate Attributes
+[
+  {
+    "PropertyName": "Attributes",
+    "ErrorMessage": "Duplicate attributeId in request"
+  }
+]
+```
+
+```json 403 Forbidden
+{
+  "error": "Insufficient permissions"
+}
+```
+</ResponseExample>
+
+## Validation Rules
+
+- **Name**: Required, cannot be null or empty, maximum 50 characters
+- **Price**: Required, must be >= 0
+- **CategoryId**: Required, must be > 0
+- **BrandId**: Required, must be > 0
+- **CountryId**: Required, must be > 0
+- **Attributes**: Required, cannot be empty or null
+  - Each attribute ID must be > 0
+  - Each attribute value cannot be empty
+  - Attribute IDs must be unique (no duplicates)
+
+## Status Codes
+
+- `201 Created` - Product successfully created
+- `400 Bad Request` - Validation error or invalid attributes
+- `403 Forbidden` - Insufficient permissions to create products

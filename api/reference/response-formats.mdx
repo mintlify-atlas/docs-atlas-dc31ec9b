@@ -1,0 +1,344 @@
+---
+title: Response Formats
+description: Standard response structures and data formats in the GroceryStore API
+---
+
+The GroceryStore API returns responses in JSON format with consistent structures based on the operation type.
+
+## Success Response Formats
+
+### Resource Creation (201 Created)
+
+When creating a new resource, the API returns a `201 Created` status with the complete resource object and a `Location` header.
+
+**Example: Create Product**
+
+```http
+POST /api/v1/admin/products
+```
+
+**Response:** `201 Created`
+```http
+Location: /api/v1/admin/products/123
+```
+
+```json
+{
+  "id": 123,
+  "name": "Organic Apple",
+  "price": 2.99,
+  "categoryId": 1,
+  "brandId": 5,
+  "countryId": 2,
+  "sku": "PROD-001-123",
+  "description": "Fresh organic apples",
+  "baseUnit": "kg",
+  "attributes": {
+    "1": "Red",
+    "2": "Large"
+  },
+  "isActive": true,
+  "createdAt": "2026-03-05T10:30:00Z",
+  "updatedAt": "2026-03-05T10:30:00Z"
+}
+```
+
+### Resource Update (201 Created)
+
+Update operations return the updated resource with a `201 Created` status.
+
+**Example: Update Product**
+
+```http
+PATCH /api/v1/admin/products/123
+```
+
+**Response:** `201 Created`
+```http
+Location: /api/v1/admin/products/123
+```
+
+```json
+{
+  "id": 123,
+  "name": "Organic Apple - Premium",
+  "price": 3.49,
+  "categoryId": 1,
+  "brandId": 5,
+  "countryId": 2,
+  "sku": "PROD-001-123",
+  "description": "Premium fresh organic apples",
+  "baseUnit": "kg",
+  "attributes": {
+    "1": "Red",
+    "2": "Large"
+  },
+  "isActive": true,
+  "createdAt": "2026-03-05T10:30:00Z",
+  "updatedAt": "2026-03-05T11:15:00Z"
+}
+```
+
+### Resource List (200 OK)
+
+List endpoints return an array of resources.
+
+**Example: Get Products**
+
+```http
+GET /api/v1/admin/products
+```
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": 123,
+    "name": "Organic Apple",
+    "price": 2.99,
+    "categoryId": 1,
+    "brandId": 5,
+    "countryId": 2,
+    "sku": "PROD-001-123",
+    "description": "Fresh organic apples",
+    "baseUnit": "kg",
+    "metadata": [
+      {
+        "name": "Color",
+        "value": "Red",
+        "unit": null
+      },
+      {
+        "name": "Size",
+        "value": "Large",
+        "unit": null
+      },
+      {
+        "name": "Weight",
+        "value": "200",
+        "unit": "g"
+      }
+    ]
+  },
+  {
+    "id": 124,
+    "name": "Banana",
+    "price": 1.49,
+    "categoryId": 1,
+    "brandId": 3,
+    "countryId": 5,
+    "sku": "PROD-001-124",
+    "description": "Fresh bananas",
+    "baseUnit": "kg",
+    "metadata": [
+      {
+        "name": "Color",
+        "value": "Yellow",
+        "unit": null
+      }
+    ]
+  }
+]
+```
+
+**Example: Get Categories**
+
+```http
+GET /api/v1/admin/categories
+```
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": 1,
+    "name": "Fruits & Vegetables"
+  },
+  {
+    "id": 2,
+    "name": "Dairy & Eggs"
+  },
+  {
+    "id": 3,
+    "name": "Bakery"
+  }
+]
+```
+
+### Resource Deletion (204 No Content)
+
+Successful deletion returns a `204 No Content` status with no response body.
+
+**Example: Delete Product**
+
+```http
+DELETE /api/v1/admin/products/123
+```
+
+**Response:** `204 No Content`
+
+No response body is returned.
+
+## Data Structures
+
+### Product Object
+
+```typescript
+{
+  id: number;
+  name: string;
+  price: number;
+  categoryId: number;
+  brandId: number;
+  countryId: number;
+  sku: string;
+  description: string | null;
+  baseUnit: string | null;
+  attributes?: Record<number, string>;  // For create/update responses
+  metadata?: MetadataItem[];            // For list responses
+  isActive?: boolean;
+  createdAt?: string;  // ISO 8601 datetime
+  updatedAt?: string;  // ISO 8601 datetime
+}
+```
+
+<Note>
+The product representation varies slightly between endpoints:
+- **Create/Update**: Returns `attributes` as a dictionary mapping attribute IDs to values
+- **List**: Returns `metadata` as an array of enriched attribute objects with names and units
+</Note>
+
+### Metadata Object
+
+```typescript
+{
+  name: string | null;
+  value: string | null;
+  unit: string | null;
+}
+```
+
+### Category Object
+
+```typescript
+{
+  id: number;
+  name: string;
+}
+```
+
+### Attribute Input
+
+When creating or updating products, attributes are provided as:
+
+```typescript
+{
+  id: number;
+  value: string;
+}
+```
+
+## Field Types
+
+### Common Data Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `number` | Integer or decimal | `123`, `2.99` |
+| `string` | Text value | `"Organic Apple"` |
+| `string \| null` | Optional text | `"Description"` or `null` |
+| `boolean` | True/false value | `true`, `false` |
+| `datetime` | ISO 8601 timestamp | `"2026-03-05T10:30:00Z"` |
+
+### Price Format
+
+- Type: `decimal`
+- Precision: 2 decimal places
+- Minimum: `0.00`
+- Example: `2.99`, `10.50`
+
+### SKU Format
+
+SKUs are automatically generated by the system in the format:
+
+```
+PROD-{categoryId}-{productId}
+```
+
+Example: `PROD-001-123`
+
+## Response Headers
+
+### Location Header
+
+Create and update operations include a `Location` header pointing to the resource:
+
+```http
+Location: /api/v1/admin/products/123
+```
+
+### Content-Type
+
+All responses use JSON:
+
+```http
+Content-Type: application/json; charset=utf-8
+```
+
+## Empty Responses
+
+### Empty Lists
+
+When no resources are found, list endpoints return an empty array:
+
+```json
+[]
+```
+
+### Not Found
+
+When a resource doesn't exist, a `404 Not Found` status is returned with no body.
+
+### Successful Deletion
+
+Successful deletions return `204 No Content` with no body.
+
+## Null vs Omitted Fields
+
+The API distinguishes between `null` and omitted fields:
+
+- **Null**: Explicitly indicates no value (e.g., `"description": null`)
+- **Omitted**: Field not included in response (typically for update operations)
+
+### Update Request Example
+
+When updating, only include fields you want to change:
+
+```json
+{
+  "newName": {
+    "hasValue": true,
+    "value": "New Product Name"
+  },
+  "newPrice": {
+    "hasValue": true,
+    "value": 5.99
+  }
+}
+```
+
+<Tip>
+The update request uses a wrapper object with `hasValue` and `value` properties to distinguish between "not updating this field" and "setting this field to a specific value."
+</Tip>
+
+## Best Practices
+
+1. **Always Check Status Codes**: Use the HTTP status code to determine if the operation succeeded before parsing the response body.
+
+2. **Handle Missing Fields**: Optional fields may be `null` or omitted. Ensure your client handles both cases.
+
+3. **Use Location Headers**: After creating or updating resources, use the `Location` header to get the canonical URL.
+
+4. **Expect Different Formats**: The same resource (e.g., Product) may have slightly different shapes in different endpoints. Always check the documentation for the specific endpoint.
+
+5. **Timestamp Handling**: All timestamps are in UTC using ISO 8601 format. Convert to local time in your application as needed.

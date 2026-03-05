@@ -1,0 +1,51 @@
+---
+title: 'Delete Product'
+api: 'DELETE /api/v1/admin/products/{productId}'
+---
+
+Performs a soft deletion of a product by its ID. The product is marked as inactive rather than being permanently removed from the database.
+
+## Path Parameters
+
+<ParamField path="productId" type="integer" required>
+  The ID of the product to delete. Must be greater than or equal to 1.
+</ParamField>
+
+## Response
+
+This endpoint returns no content on successful deletion.
+
+## Request Example
+
+```bash
+curl -X DELETE "https://api.example.com/api/v1/admin/products/42" \
+  -H "Content-Type: application/json"
+```
+
+## Response Example
+
+<ResponseExample>
+```text 204 No Content
+```
+
+```json 404 Not Found
+{}
+```
+
+```json 403 Forbidden
+{}
+```
+</ResponseExample>
+
+## Status Codes
+
+- `204 No Content` - Product successfully soft-deleted
+- `403 Forbidden` - Insufficient permissions to delete products
+- `404 Not Found` - Product with the specified ID does not exist
+
+## Notes
+
+- This is a **soft delete** operation. The product is not permanently removed from the database
+- Instead, the product's `IsActive` flag is set to `false` and the `UpdatedAt` timestamp is updated
+- Soft-deleted products will not appear in the product list endpoint by default
+- This approach preserves data integrity and maintains historical records

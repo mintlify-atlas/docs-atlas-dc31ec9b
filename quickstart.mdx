@@ -1,80 +1,233 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get the GroceryStore API running locally in minutes"
 ---
 
-## Get started in three steps
+# Quickstart
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+Get up and running with the GroceryStore API in just a few minutes. This guide will walk you through setting up the database, running migrations, and making your first API request.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Make sure you've reviewed the [Prerequisites](/prerequisites) before starting.
 </Note>
+
+## Setup Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the GroceryStore repository to your local machine:
+
+    ```bash
+    git clone https://github.com/9asmodey6/GroceryStore.git
+    cd GroceryStore
+    ```
+  </Step>
+
+  <Step title="Configure the Database">
+    Update the connection string in your `appsettings.json` or user secrets with your PostgreSQL credentials:
+
+    ```json appsettings.json
+    {
+      "ConnectionStrings": {
+        "DefaultConnection": "Host=localhost;Database=grocery_db;Username=postgres;Password=YourPassword"
+      }
+    }
+    ```
+
+    <Tip>
+      For development, you can use user secrets to keep credentials secure:
+      ```bash
+      dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Database=grocery_db;Username=postgres;Password=YourPassword"
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Apply Migrations">
+    Run Entity Framework Core migrations to create the database schema:
+
+    ```bash
+    dotnet ef database update
+    ```
+
+    This will:
+    - Create all necessary tables (`products`, `categories`, `brands`, `countries`, etc.)
+    - Apply the snake_case naming convention
+    - Seed initial data including categories, attributes, brands, and countries
+
+    <Info>
+      The database is automatically pre-seeded with:
+      - **Categories**: Dairy, Alcohol, Meat, Beverages, Bakery, and more
+      - **Attributes**: Fat Content, Volume, Alcohol %, Weight, Expiration Date, etc.
+      - **Brands**: Sample brands for testing
+      - **Countries**: Sample countries of origin
+    </Info>
+  </Step>
+
+  <Step title="Run the Application">
+    Start the API server:
+
+    ```bash
+    dotnet run --project GroceryStore
+    ```
+
+    The API will start on `http://localhost:5000` (or `https://localhost:5001` for HTTPS).
+  </Step>
+
+  <Step title="Access API Documentation">
+    Open your browser and navigate to:
+
+    ```
+    http://localhost:5000/scalar/v1
+    ```
+
+    This will open the interactive Scalar API documentation where you can explore and test all endpoints.
+  </Step>
+</Steps>
+
+## Your First API Request
+
+Now that the API is running, let's make your first request!
+
+### 1. List All Categories
+
+First, retrieve the available categories:
+
+```bash
+curl -X GET http://localhost:5000/api/v1/admin/categories
+```
+
+**Response:**
+```json
+[
+  {
+    "id": 17,
+    "name": "Milk",
+    "parentId": 8,
+    "fullPath": "Dairy > Milk",
+    "level": 2
+  },
+  {
+    "id": 8,
+    "name": "Dairy",
+    "parentId": null,
+    "fullPath": "Dairy",
+    "level": 1
+  }
+]
+```
+
+### 2. Check Required Attributes
+
+Before creating a product, check which attributes are required for a specific category:
+
+```bash
+curl -X GET http://localhost:5000/api/v1/admin/categories/17/metadata
+```
+
+**Response:**
+```json
+[
+  {
+    "attributeId": 1,
+    "name": "Fat Content",
+    "dataType": "Decimal",
+    "unit": "%",
+    "minValue": 0.0,
+    "maxValue": 100.0,
+    "isRequired": true
+  },
+  {
+    "attributeId": 3,
+    "name": "Weight",
+    "dataType": "Integer",
+    "unit": "g",
+    "minValue": 1,
+    "maxValue": 10000,
+    "isRequired": true
+  }
+]
+```
+
+### 3. Create a Product
+
+Now create your first product with the required attributes:
+
+```bash
+curl -X POST http://localhost:5000/api/v1/admin/products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Whole Milk",
+    "description": "Fresh whole milk",
+    "price": 3.99,
+    "categoryId": 17,
+    "brandId": 1,
+    "countryId": 1,
+    "baseUnit": "l",
+    "attributes": [
+      { "id": 1, "value": "3.5" },
+      { "id": 3, "value": "1000" }
+    ]
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": 1,
+  "name": "Whole Milk",
+  "description": "Fresh whole milk",
+  "price": 3.99,
+  "categoryId": 17,
+  "brandId": 1,
+  "countryId": 1,
+  "sku": "MIL-847293",
+  "baseUnit": "l",
+  "isActive": true,
+  "createdAt": "2024-03-05T10:30:00Z",
+  "updatedAt": "2024-03-05T10:30:00Z",
+  "metadata": {
+    "1": "3.5",
+    "3": "1000"
+  }
+}
+```
+
+<Note>
+  The **SKU is auto-generated** based on the category name prefix and a random 6-digit number. In this example, "MIL" comes from "Milk".
+</Note>
+
+## Troubleshooting
+
+<Accordion title="Database connection failed">
+  - Verify PostgreSQL is running: `pg_isready`
+  - Check your connection string in `appsettings.json` or user secrets
+  - Ensure the database user has CREATE DATABASE permissions
+</Accordion>
+
+<Accordion title="Migration errors">
+  - Make sure EF Core tools are installed: `dotnet tool list -g`
+  - Try cleaning and rebuilding: `dotnet clean && dotnet build`
+  - Check if the database already exists and drop it if needed
+</Accordion>
+
+<Accordion title="Port already in use">
+  - Change the port in `Properties/launchSettings.json`
+  - Or kill the process using the port: `lsof -ti:5000 | xargs kill` (macOS/Linux)
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Product Management" icon="box" href="/guides/product-management">
+    Learn how to manage products via the API
+  </Card>
+  <Card title="Category Metadata" icon="tags" href="/guides/category-metadata">
+    Understand the dynamic metadata system
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/products/create">
+    Explore the complete API documentation
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Deep dive into the architecture
+  </Card>
+</CardGroup>

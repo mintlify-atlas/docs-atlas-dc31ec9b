@@ -1,0 +1,377 @@
+---
+title: Product Management
+description: Create, update, retrieve, and delete products using the GroceryStore API
+---
+
+This guide shows you how to manage products through the REST API endpoints.
+
+## Endpoints Overview
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/admin/products` | Create a new product |
+| GET | `/api/v1/admin/products` | Get all active products |
+| PATCH | `/api/v1/admin/products/{productId}` | Update a product |
+| DELETE | `/api/v1/admin/products/{productId}` | Soft delete a product |
+
+## Creating a Product
+
+<Steps>
+  <Step title="Get Category ID">
+    First, retrieve available categories to find the appropriate `categoryId`:
+
+    ```bash
+    GET /api/v1/admin/categories
+    ```
+
+    **Response:**
+    ```json
+    [
+      {
+        "id": 3,
+        "name": "Milk",
+        "parentId": 1,
+        "fullPath": "Dairy > Milk",
+        "level": 2
+      },
+      {
+        "id": 4,
+        "name": "Cheese",
+        "parentId": 1,
+        "fullPath": "Dairy > Cheese",
+        "level": 2
+      }
+    ]
+    ```
+  </Step>
+
+  <Step title="Get Required Metadata">
+    Fetch the required attributes for your chosen category:
+
+    ```bash
+    GET /api/v1/admin/categories/3/metadata
+    ```
+
+    **Response:**
+    ```json
+    [
+      {
+        "attributeId": 1,
+        "name": "Fat Content",
+        "dataType": "Decimal",
+        "unit": "%",
+        "minValue": 0,
+        "maxValue": 100,
+        "isRequired": true
+      },
+      {
+        "attributeId": 3,
+        "name": "Volume",
+        "dataType": "Integer",
+        "unit": "ml",
+        "minValue": 0,
+        "maxValue": 10000,
+        "isRequired": true
+      }
+    ]
+    ```
+
+    <Note>
+      Attributes are **recursively inherited** from parent categories. A subcategory will require all parent attributes plus its own.
+    </Note>
+  </Step>
+
+  <Step title="Create Product Request">
+    Send a POST request with all required fields and metadata attributes:
+
+    ```bash
+    POST /api/v1/admin/products
+    Content-Type: application/json
+    ```
+
+    **Request Body:**
+    ```json
+    {
+      "name": "Organic Whole Milk",
+      "categoryId": 3,
+      "brandId": 1,
+      "countryId": 1,
+      "description": "Fresh organic whole milk from local farms",
+      "price": 4.99,
+      "baseUnit": "L",
+      "attributes": [
+        {
+          "id": 1,
+          "value": "3.5"
+        },
+        {
+          "id": 3,
+          "value": "1000"
+        },
+        {
+          "id": 8,
+          "value": "false"
+        }
+      ]
+    }
+    ```
+
+    **Response (201 Created):**
+    ```json
+    {
+      "id": 42,
+      "name": "Organic Whole Milk",
+      "price": 4.99,
+      "categoryId": 3,
+      "brandId": 1,
+      "countryId": 1,
+      "sku": "MILK-847293",
+      "description": "Fresh organic whole milk from local farms",
+      "baseUnit": "L",
+      "createdAt": "2026-03-05T10:30:00Z",
+      "updatedAt": "2026-03-05T10:30:00Z",
+      "isActive": true,
+      "metadata": {
+        "1": "3.5",
+        "3": "1000",
+        "8": "false"
+      }
+    }
+    ```
+
+    <Info>
+      The **SKU is auto-generated** using the category name prefix and a random 6-digit number. See [SKU Generation](/guides/sku-generation) for details.
+    </Info>
+  </Step>
+</Steps>
+
+## Request Field Details
+
+<ParamField path="name" type="string" required>
+  Product name (max 50 characters)
+</ParamField>
+
+<ParamField path="categoryId" type="integer" required>
+  ID of the product category. Must exist in the database.
+</ParamField>
+
+<ParamField path="brandId" type="integer" required>
+  ID of the product brand. Must exist in the database.
+</ParamField>
+
+<ParamField path="countryId" type="integer" required>
+  ID of the country of origin. Must exist in the database.
+</ParamField>
+
+<ParamField path="price" type="decimal" required>
+  Product price with 2 decimal precision (e.g., 4.99)
+</ParamField>
+
+<ParamField path="description" type="string">
+  Optional product description (no length limit)
+</ParamField>
+
+<ParamField path="baseUnit" type="string">
+  Unit of measurement (e.g., "pcs", "kg", "L"). Default: "pcs"
+</ParamField>
+
+<ParamField path="attributes" type="array" required>
+  List of attribute values as `{id, value}` pairs. Must include all required attributes for the category.
+  
+  Values are validated and normalized based on the attribute data type:
+  - **Decimal**: Precision normalized
+  - **Integer**: Parsed and validated
+  - **Boolean**: Accepts true/false, 1/0, "true"/"false"
+  - **String**: Stored as-is
+</ParamField>
+
+## Retrieving Products
+
+### Get All Products
+
+```bash
+GET /api/v1/admin/products
+```
+
+**Response:**
+```json
+[
+  {
+    "id": 42,
+    "name": "Organic Whole Milk",
+    "price": 4.99,
+    "categoryId": 3,
+    "brandId": 1,
+    "countryId": 1,
+    "sku": "MILK-847293",
+    "description": "Fresh organic whole milk from local farms",
+    "baseUnit": "L",
+    "metadata": [
+      {
+        "name": "Fat Content",
+        "value": "3.5",
+        "unit": "%"
+      },
+      {
+        "name": "Volume",
+        "value": "1000",
+        "unit": "ml"
+      },
+      {
+        "name": "Lactose Free",
+        "value": "false",
+        "unit": null
+      }
+    ]
+  }
+]
+```
+
+<Note>
+  This endpoint uses **Dapper** for optimized read queries with JSONB extraction. Only active products (`is_active = true`) are returned.
+</Note>
+
+## Updating a Product
+
+Use PATCH to update specific fields:
+
+```bash
+PATCH /api/v1/admin/products/42
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "newName": "Premium Organic Whole Milk",
+  "newPrice": 5.49,
+  "newDescription": "Premium fresh organic whole milk from certified local farms"
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "id": 42,
+  "name": "Premium Organic Whole Milk",
+  "price": 5.49,
+  "description": "Premium fresh organic whole milk from certified local farms",
+  "categoryId": 3,
+  "brandId": 1,
+  "countryId": 1,
+  "sku": "MILK-847293",
+  "baseUnit": "L",
+  "createdAt": "2026-03-05T10:30:00Z",
+  "updatedAt": "2026-03-05T11:15:00Z",
+  "isActive": true
+}
+```
+
+### Available Update Fields
+
+<ParamField path="newName" type="string">
+  Update the product name
+</ParamField>
+
+<ParamField path="newDescription" type="string">
+  Update the product description
+</ParamField>
+
+<ParamField path="newPrice" type="decimal">
+  Update the product price
+</ParamField>
+
+<ParamField path="newCategoryId" type="integer">
+  Change the product category
+</ParamField>
+
+<ParamField path="newBaseUnit" type="string">
+  Change the base unit
+</ParamField>
+
+<Tip>
+  The request uses the `Optional<T>` pattern - only include fields you want to update. Omitted fields remain unchanged.
+</Tip>
+
+## Deleting a Product
+
+Products are **soft deleted** using the `is_active` flag:
+
+```bash
+DELETE /api/v1/admin/products/42
+```
+
+**Response (204 No Content)**
+
+The product is marked as inactive but remains in the database. Global query filters automatically exclude it from GET requests.
+
+<Warning>
+  Currently, there's no built-in endpoint to restore soft-deleted products. You would need to update the `is_active` flag directly in the database.
+</Warning>
+
+## Validation Errors
+
+The API returns detailed validation errors:
+
+**Example: Missing Required Attribute**
+```json
+{
+  "errors": [
+    "Attribute 'Fat Content' (ID: 1) is required for this category but was not provided."
+  ]
+}
+```
+
+**Example: Invalid Attribute Value**
+```json
+{
+  "errors": [
+    "Attribute 'Fat Content' value must be between 0 and 100."
+  ]
+}
+```
+
+**Example: FluentValidation Error**
+```json
+[
+  {
+    "propertyName": "Price",
+    "errorMessage": "'Price' must be greater than '0'.",
+    "attemptedValue": -1.5
+  }
+]
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always fetch category metadata first">
+    Before creating a product, call `/api/v1/admin/categories/{categoryId}/metadata` to ensure you provide all required attributes with valid data types and ranges.
+  </Accordion>
+
+  <Accordion title="Use correct data types for attribute values">
+    Even though attributes are sent as strings in the JSON, they're validated and normalized:
+    - Decimals: `"3.5"` not `3.5`
+    - Booleans: `"true"`, `"false"`, `"1"`, `"0"` all work
+    - Integers: `"1000"` not `1000`
+  </Accordion>
+
+  <Accordion title="Handle batch errors gracefully">
+    The validation system returns **all errors at once**, not just the first one. This allows you to fix multiple issues in a single request.
+  </Accordion>
+
+  <Accordion title="Cache category metadata">
+    Category metadata is cached for 30 minutes on the server. For client applications, consider caching it as well to reduce API calls.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Category Metadata" icon="tags" href="/guides/category-metadata">
+    Deep dive into category attributes and validation
+  </Card>
+  <Card title="SKU Generation" icon="barcode" href="/guides/sku-generation">
+    Learn how SKUs are automatically generated
+  </Card>
+</CardGroup>

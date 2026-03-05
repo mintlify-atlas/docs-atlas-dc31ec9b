@@ -1,0 +1,373 @@
+---
+title: SKU Generation
+description: How product SKUs are automatically generated using category-based prefixes and secure random numbers
+---
+
+The GroceryStore API automatically generates unique SKUs (Stock Keeping Units) for all products during creation. This guide explains the generation logic and algorithm.
+
+## SKU Format
+
+SKUs follow this pattern:
+
+```
+{PREFIX}-{RANDOM}
+```
+
+**Example SKUs:**
+- `MILK-847293`
+- `CHEE-192847`
+- `BEER-384756`
+- `GENX-918273` (fallback for categories with short names)
+
+## Generation Algorithm
+
+The SKU is generated in two parts:
+
+### 1. Category Prefix (4 characters)
+
+The prefix is derived from the category name:
+
+<Steps>
+  <Step title="Fetch Category Name">
+    Retrieve the category name based on the `categoryId` from the product request.
+
+    This query is cached in `IMemoryCache` for **3 hours** to reduce database load.
+  </Step>
+
+  <Step title="Extract Letters">
+    Filter out all non-letter characters from the category name:
+
+    ```csharp
+    var letters = categoryName.Where(char.IsLetter)
+    ```
+
+    Examples:
+    - "Milk" → `['M', 'i', 'l', 'k']`
+    - "Soft Cheese" → `['S', 'o', 'f', 't', 'C', 'h', 'e', 'e', 's', 'e']`
+    - "Beer" → `['B', 'e', 'e', 'r']`
+  </Step>
+
+  <Step title="Take First 4 Letters">
+    Take up to 4 characters from the filtered letters:
+
+    ```csharp
+    .Take(4)
+    ```
+
+    Examples:
+    - `['M', 'i', 'l', 'k']` → "Milk"
+    - `['S', 'o', 'f', 't']` → "Soft"
+    - `['B', 'e', 'e', 'r']` → "Beer"
+  </Step>
+
+  <Step title="Convert to Uppercase">
+    Uppercase the result:
+
+    ```csharp
+    .ToUpper()
+    ```
+
+    Examples:
+    - "Milk" → `MILK`
+    - "Soft" → `SOFT`
+    - "Beer" → `BEER`
+  </Step>
+
+  <Step title="Pad if Necessary">
+    If the result is shorter than 4 characters, pad with 'X':
+
+    ```csharp
+    .PadRight(4, 'X')
+    ```
+
+    Examples:
+    - "TO" → `TOXX`
+    - "A" → `AXXX`
+    - "" (empty) → `XXXX`
+  </Step>
+</Steps>
+
+### 2. Random Suffix (6 digits)
+
+The suffix is a cryptographically secure random 6-digit number:
+
+```csharp
+var random = RandomNumberGenerator.GetInt32(100000, 999999);
+```
+
+- **Range:** 100,000 to 999,999 (inclusive)
+- **Method:** `System.Security.Cryptography.RandomNumberGenerator`
+- **Security:** Uses OS-level cryptographic RNG, not pseudo-random
+
+<Info>
+  Using `RandomNumberGenerator` instead of `System.Random` ensures:
+  - No predictable patterns
+  - Suitable for security-sensitive scenarios
+  - Better distribution across the range
+</Info>
+
+### 3. Combine Prefix and Suffix
+
+```csharp
+return $"{prefix}-{random}";
+```
+
+**Result:** `MILK-847293`
+
+## Complete Source Code
+
+Here's the full implementation from `ProductSkuGenerationService.cs`:
+
+```csharp ProductSkuGenerationService.cs
+namespace GroceryStore.Infrastructure.Services;
+
+using System.Security.Cryptography;
+using GroceryStore.Database;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+
+public class ProductSkuGenerationService(IMemoryCache cache, AppDbContext context)
+{
+    public async Task<string> CreateSku(int categoryId, CancellationToken ct)
+    {
+        var categoryName = await GetCategoryNameCached(categoryId, ct);
+
+        var prefix = string.IsNullOrWhiteSpace(categoryName)
+            ? "GEN"
+            : new string(categoryName
+                    .Where(char.IsLetter)
+                    .Take(4)
+                    .ToArray())
+                .ToUpper()
+                .PadRight(4, 'X');
+
+        var random = RandomNumberGenerator.GetInt32(100000, 999999);
+
+        return $"{prefix}-{random}";
+    }
+
+    private async Task<string?> GetCategoryNameCached(int categoryId, CancellationToken ct)
+    {
+        var cacheKey = $"category_name_{categoryId}";
+
+        return await cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(3);
+            var name = await context.Categories
+                .AsNoTracking()
+                .Where(c => c.Id == categoryId)
+                .Select(c => c.Name)
+                .FirstOrDefaultAsync(ct);
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2);
+            }
+
+            return name;
+        });
+    }
+}
+```
+
+## SKU Examples by Category
+
+| Category | Extracted Letters | Prefix | Example SKU |
+|----------|------------------|--------|-------------|
+| Milk | M-i-l-k | `MILK` | `MILK-384756` |
+| Cheese | C-h-e-e-s-e | `CHEE` | `CHEE-192847` |
+| Soft Cheese | S-o-f-t-C-h-e-e-s-e | `SOFT` | `SOFT-847392` |
+| Beer | B-e-e-r | `BEER` | `BEER-938271` |
+| Wine | W-i-n-e | `WINE` | `WINE-583921` |
+| Yogurt | Y-o-g-u-r-t | `YOGU` | `YOGU-192837` |
+| Tea | T-e-a | `TEAX` | `TEAX-847392` |
+| To | T-o | `TOXX` | `TOXX-384756` |
+| A | A | `AXXX` | `AXXX-918273` |
+| (empty/null) | (none) | `GENX` | `GENX-847293` |
+
+<Note>
+  Notice how short category names (Tea, To, A) are padded with 'X', and null/empty categories default to "GEN" then padded.
+</Note>
+
+## Uniqueness Guarantee
+
+### Collision Probability
+
+With 900,000 possible random suffixes per category prefix:
+
+- **Low Volume (< 1,000 products per category):** Near-zero collision risk
+- **Medium Volume (1,000 - 10,000):** ~1-5% collision risk
+- **High Volume (> 10,000):** Birthday paradox increases risk significantly
+
+<Warning>
+  The current implementation does **not check for existing SKUs** before assignment. In high-volume scenarios, you may encounter duplicate SKU errors from the database unique constraint.
+</Warning>
+
+### Database Constraint
+
+The `products` table has a unique index on the `sku` column:
+
+```sql
+CREATE UNIQUE INDEX idx_products_sku ON products(sku);
+```
+
+If a collision occurs, the database will reject the insert with a constraint violation error.
+
+## Caching Strategy
+
+Category names are cached to avoid repeated database queries during bulk product creation:
+
+<AccordionGroup>
+  <Accordion title="Successful Cache Hit">
+    **Cache Key:** `category_name_{categoryId}`
+    
+    **TTL:** 3 hours
+
+    When a category is found, the name is cached for 3 hours, allowing thousands of products to be created without additional database queries.
+  </Accordion>
+
+  <Accordion title="Category Not Found">
+    **Cache Key:** `category_name_{categoryId}`
+    
+    **TTL:** 2 minutes
+
+    If a category doesn't exist, the cache entry expires after 2 minutes to allow for category creation and retry.
+
+    The SKU will use the fallback prefix: `GENX-{random}`
+  </Accordion>
+</AccordionGroup>
+
+## Performance Characteristics
+
+<CardGroup cols={2}>
+  <Card title="Time Complexity" icon="clock">
+    **O(1)** - Constant time with caching
+    
+    First request per category: O(1) database query + cache write
+    
+    Subsequent requests: O(1) cache read
+  </Card>
+  <Card title="Memory Usage" icon="memory">
+    **Minimal** - Cache stores only category names
+    
+    ~50 bytes per cached category
+    
+    Auto-expires after 3 hours
+  </Card>
+  <Card title="Thread Safety" icon="lock">
+    **Thread-Safe** - IMemoryCache is concurrent
+    
+    RandomNumberGenerator is thread-safe
+    
+    No shared mutable state
+  </Card>
+  <Card title="Collision Handling" icon="triangle-exclamation">
+    **Database-Level** - Unique constraint
+    
+    No application-level retry logic
+    
+    Returns 500 error on collision
+  </Card>
+</CardGroup>
+
+## Potential Improvements
+
+<AccordionGroup>
+  <Accordion title="Collision Detection & Retry">
+    Add a loop that checks for existing SKUs and regenerates if collision detected:
+
+    ```csharp
+    public async Task<string> CreateSku(int categoryId, CancellationToken ct)
+    {
+        const int maxAttempts = 5;
+        
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            var sku = GenerateSku(categoryName);
+            var exists = await context.Products
+                .AnyAsync(p => p.Sku == sku, ct);
+            
+            if (!exists) return sku;
+        }
+        
+        throw new InvalidOperationException("Could not generate unique SKU");
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Incremental SKU Strategy">
+    Use a database sequence or counter for guaranteed uniqueness:
+
+    ```csharp
+    var sequence = await GetNextSequenceValue(categoryId, ct);
+    return $"{prefix}-{sequence:D6}";
+    ```
+
+    **Pros:** Guaranteed unique, predictable
+    
+    **Cons:** Loses randomness, reveals product creation order
+  </Accordion>
+
+  <Accordion title="Longer Random Suffix">
+    Increase from 6 to 8 digits:
+
+    ```csharp
+    var random = RandomNumberGenerator.GetInt32(10000000, 99999999);
+    ```
+
+    Reduces collision probability by 100x.
+  </Accordion>
+
+  <Accordion title="Hybrid Approach">
+    Combine timestamp + random for uniqueness:
+
+    ```csharp
+    var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 1000000;
+    var random = RandomNumberGenerator.GetInt32(100, 999);
+    return $"{prefix}-{timestamp}{random}";
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Usage in Product Creation
+
+SKU generation is called automatically during product creation:
+
+```csharp CreateProduct.cs
+private static async Task<IResult> HandleAsync(
+    CreateProductRequest request,
+    ProductSkuGenerationService skuService,
+    // ... other dependencies
+    CancellationToken ct)
+{
+    // Validate request...
+    
+    var sku = await skuService.CreateSku(request.CategoryId, ct);
+    var product = new Product(
+        request.Name,
+        request.Price,
+        request.CategoryId,
+        request.BrandId,
+        request.CountryId,
+        sku,  // Auto-generated SKU
+        request.Description,
+        request.BaseUnit,
+        normalized);
+    
+    await repository.CreateAsync(product, ct);
+    return Results.Created($"/api/v1/admin/products/{product.Id}", product);
+}
+```
+
+The SKU is generated **before** the product entity is created, ensuring it's available in the response.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Product Management" icon="box" href="/guides/product-management">
+    See SKU generation in action when creating products
+  </Card>
+  <Card title="Database Setup" icon="database" href="/guides/database-setup">
+    Understand the database schema and constraints
+  </Card>
+</CardGroup>

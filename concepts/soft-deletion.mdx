@@ -1,0 +1,268 @@
+---
+title: Soft Deletion
+description: Learn how the GroceryStore API implements soft deletion to prevent data loss and maintain referential integrity
+---
+
+The GroceryStore API uses soft deletion instead of physical deletion to protect data integrity and enable data recovery. Products are marked as inactive rather than being permanently removed from the database.
+
+## What is Soft Deletion?
+
+Soft deletion is a data safety pattern where records are marked as deleted (using a flag) rather than being physically removed from the database. This approach:
+
+- **Prevents accidental data loss**
+- **Maintains referential integrity**
+- **Enables data recovery**
+- **Preserves historical records for auditing**
+
+<Note>
+  Soft-deleted records are automatically excluded from queries using EF Core Global Query Filters.
+</Note>
+
+## Implementation
+
+### IsActive Flag
+
+The `Product` entity includes an `IsActive` boolean property:
+
+```csharp Product.cs:58
+public bool IsActive { get; private set; } = true;
+```
+
+All products are active by default. When a product is deleted, the `SoftDelete()` method is called:
+
+```csharp Product.cs:139-143
+public void SoftDelete()
+{
+    IsActive = false;
+    Touch();
+}
+```
+
+<Info>
+  The `Touch()` method updates the `UpdatedAt` timestamp, providing an audit trail of when the deletion occurred.
+</Info>
+
+### Database Configuration
+
+The `IsActive` column is configured with a default value in the database:
+
+```csharp ProductConfiguration.cs:38-39
+builder.Property(p => p.IsActive)
+    .HasDefaultValue(true);
+```
+
+This ensures that even if the application logic fails to set `IsActive`, new products will be active by default.
+
+## Global Query Filter
+
+EF Core's Global Query Filter automatically excludes inactive products from all queries:
+
+```csharp ProductConfiguration.cs:19
+builder.HasQueryFilter(p => p.IsActive);
+```
+
+### How It Works
+
+When you query products using Entity Framework Core:
+
+```csharp
+var products = await context.Products.ToListAsync();
+```
+
+EF Core automatically transforms it to:
+
+```csharp
+var products = await context.Products
+    .Where(p => p.IsActive)
+    .ToListAsync();
+```
+
+<Accordion title="Generated SQL">
+  ```sql
+  SELECT 
+      p.id,
+      p.name,
+      p.price,
+      p.category_id,
+      p.brand_id,
+      p.country_id,
+      p.sku,
+      p.description,
+      p.base_unit,
+      p.metadata,
+      p.is_active,
+      p.created_at,
+      p.updated_at
+  FROM products AS p
+  WHERE p.is_active = true
+  ```
+</Accordion>
+
+### Bypassing the Filter
+
+If you need to query all products (including inactive ones), use `IgnoreQueryFilters()`:
+
+```csharp
+var allProducts = await context.Products
+    .IgnoreQueryFilters()
+    .ToListAsync();
+```
+
+<Note>
+  This is useful for administrative interfaces that need to restore deleted products.
+</Note>
+
+## Foreign Key Safety
+
+To prevent unintended cascading deletions, all relationships use `Restrict` delete behavior:
+
+```csharp AppDbContext.cs:33
+modelBuilder.OnDeleteRestrictRules();
+```
+
+This means:
+- You **cannot delete a category** if products reference it
+- You **cannot delete a brand** if products use it
+- You **must handle relationships explicitly** before deletion
+
+<Info>
+  Combined with soft deletion, this creates a robust data protection system that prevents both accidental deletions and orphaned references.
+</Info>
+
+## Benefits
+
+### Data Recovery
+
+Mistakenly deleted products can be recovered by setting `IsActive` back to `true`:
+
+```csharp
+var product = await context.Products
+    .IgnoreQueryFilters()
+    .FirstOrDefaultAsync(p => p.Id == productId);
+
+if (product != null && !product.IsActive)
+{
+    product.IsActive = true;
+    await context.SaveChangesAsync();
+}
+```
+
+### Audit Trail
+
+The combination of `IsActive`, `CreatedAt`, and `UpdatedAt` provides a complete audit trail:
+
+```csharp Product.cs:55-58
+public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
+public DateTime UpdatedAt { get; private set; } = DateTime.UtcNow;
+
+public bool IsActive { get; private set; } = true;
+```
+
+You can determine:
+- When a product was created
+- When it was last modified
+- When it was deleted (last `UpdatedAt` when `IsActive = false`)
+
+### Referential Integrity
+
+Related entities remain valid even when products are soft-deleted:
+
+```csharp Product.cs:40-47
+public int CategoryId { get; private set; }
+public Category Category { get; private set; } = null!;
+
+public int BrandId { get; private set; }
+public Brand Brand { get; private set; } = null!;
+
+public int CountryId { get; private set; }
+public Country Country { get; private set; } = null!;
+```
+
+Foreign keys remain intact, allowing you to:
+- View historical data
+- Generate reports on deleted products
+- Restore products with full relationships
+
+## Complete Product Entity
+
+Here's the full `Product` entity showing soft deletion in context:
+
+```csharp Product.cs
+public class Product : BaseEntity
+{
+    public string Name { get; private set; } = null!;
+    public decimal Price { get; private set; }
+    public int CategoryId { get; private set; }
+    public int BrandId { get; private set; }
+    public int CountryId { get; private set; }
+    public string SKU { get; private set; } = null!;
+    public string? Description { get; private set; }
+    public string? BaseUnit { get; private set; } = "pcs";
+    
+    // Audit fields
+    public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; private set; } = DateTime.UtcNow;
+    
+    // Soft deletion flag
+    public bool IsActive { get; private set; } = true;
+    
+    public Dictionary<int, string> Metadata { get; private set; } = new();
+
+    public void SoftDelete()
+    {
+        IsActive = false;
+        Touch();
+    }
+
+    private void Touch()
+    {
+        UpdatedAt = DateTime.UtcNow;
+    }
+}
+```
+
+## Example: Deleting a Product
+
+Instead of using `context.Remove(product)`:
+
+```csharp
+var product = await context.Products.FindAsync(productId);
+if (product != null)
+{
+    product.SoftDelete();
+    await context.SaveChangesAsync();
+}
+```
+
+The product:
+- Remains in the database
+- Is automatically excluded from future queries
+- Can be restored if needed
+- Maintains all relationships
+
+## Best Practices
+
+<Accordion title="Use Domain Methods">
+  Always use the `SoftDelete()` method instead of directly setting `IsActive = false`. This ensures:
+  - Consistent behavior
+  - Proper timestamp updates
+  - Encapsulation of business logic
+</Accordion>
+
+<Accordion title="Be Careful with IgnoreQueryFilters">
+  Only use `IgnoreQueryFilters()` when you explicitly need to work with inactive records. Forgetting to filter can expose deleted data to users.
+</Accordion>
+
+<Accordion title="Consider Hard Deletion for GDPR">
+  Soft deletion may conflict with data privacy regulations like GDPR. Consider implementing a separate hard-deletion process for compliance scenarios.
+</Accordion>
+
+<Accordion title="Monitor Database Growth">
+  Since records are never physically deleted, monitor database size. Implement archival strategies for very old soft-deleted records.
+</Accordion>
+
+## Related Concepts
+
+- [Product Management](/api/products/delete) - API reference for deleting products
+- [Dynamic Metadata](/concepts/dynamic-metadata) - Understanding product data structure
+- [Category Hierarchy](/concepts/category-hierarchy) - How categories relate to products

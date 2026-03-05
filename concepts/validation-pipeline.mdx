@@ -1,0 +1,381 @@
+---
+title: Validation Pipeline
+description: Learn how the GroceryStore API validates and normalizes product metadata using the Result pattern
+---
+
+The validation pipeline ensures that product metadata is type-safe, properly formatted, and meets all category requirements before being stored in the database. It uses the Result pattern to collect multiple errors and avoid exception-based control flow.
+
+## Result Pattern
+
+Instead of throwing exceptions for validation failures, the system uses explicit result types that encapsulate success or failure states.
+
+### ValidationResult
+
+```csharp ValidationResults.cs:17-56
+public sealed class ValidationResult
+{
+    private readonly List<ValidationError> _errors = new();
+
+    public bool IsValid => _errors.Count == 0;
+    public IReadOnlyList<ValidationError> Errors => _errors;
+
+    public void Add(ValidationError error) => _errors.Add(error);
+
+    public void Add(string code, string message, string? field = null, int? valueId = null)
+    {
+        _errors.Add(new ValidationError
+        {
+            Code = code,
+            Message = message,
+            Field = field,
+            ValueId = valueId,
+        });
+    }
+
+    public void Add(MetadataValidationErrorCode code, string message, string? field = null, int? valueId = null)
+    {
+        _errors.Add(new ValidationError
+        {
+            Code = code.ToApiCode(),
+            Message = message,
+            Field = field,
+            ValueId = valueId,
+        });
+    }
+
+    public void Merge(ValidationResult other)
+    {
+        if (!other.IsValid)
+        {
+            _errors.AddRange(other._errors);
+        }
+    }
+}
+```
+
+<Note>
+  The `Merge` method allows combining validation results from multiple sources, enabling batch error collection.
+</Note>
+
+### NormalizationResult
+
+```csharp NormalizationResult.cs
+public class NormalizationResult<T>
+{
+    required public bool IsSuccess { get; init; }
+    public T? Value { get; init; }
+    required public ValidationResult Validation { get; init; }
+
+    public static NormalizationResult<T> Success(T value)
+    {
+        return new () { IsSuccess = true, Value = value, Validation = new ValidationResult() };
+    }
+
+    public static NormalizationResult<T> Fail(ValidationResult vr)
+    {
+        return new () { IsSuccess = false, Value = default(T), Validation = vr };
+    }
+}
+```
+
+The `NormalizationResult` combines:
+- **Validation outcome**: Did the data pass all checks?
+- **Normalized value**: The canonicalized data ready for storage
+- **Error details**: All validation errors if validation failed
+
+## Validation & Normalization Service
+
+The `CategoryAttributeValueNormalizer` is the core service responsible for validating and normalizing product metadata:
+
+```csharp CategoryAttributeValueNormalizer.cs:10-11
+public class CategoryAttributeValueNormalizer(IMemoryCache cache, CategoryAttributeRepository repository)
+{
+    public async Task<NormalizationResult<Dictionary<int, string>>> ValidateAndNormalizeAsync(
+        int categoryId,
+        IReadOnlyList<EnumerationModel> values,
+        CancellationToken ct)
+```
+
+### Validation Steps
+
+<Accordion title="Step 1: Schema Retrieval">
+  ```csharp CategoryAttributeValueNormalizer.cs:19-27
+  var metadata = await GetMetadataAsync(categoryId, ct);
+  if (metadata.Count == 0)
+  {
+      vr.Add(
+          MetadataValidationErrorCode.NotFoundMetadata,
+          "No metadata for category",
+          field: $"categoryId={categoryId}");
+      return NormalizationResult<Dictionary<int, string>>.Fail(vr);
+  }
+  ```
+  
+  Fetches the complete attribute schema for the category (including inherited attributes).
+</Accordion>
+
+<Accordion title="Step 2: Unknown Attribute Detection">
+  ```csharp CategoryAttributeValueNormalizer.cs:32-44
+  for (int i = 0; i < values.Count; i++)
+  {
+      var item = values[i];
+
+      if (!metaById.ContainsKey(item.Id))
+      {
+          vr.Add(
+              MetadataValidationErrorCode.UnknowAttribute,
+              $"AttributeId={item.Id} is not allowed for this category",
+              $"attributes[{i}].id",
+              item.Id);
+      }
+  }
+  ```
+  
+  Ensures that only attributes defined in the category schema are provided.
+</Accordion>
+
+<Accordion title="Step 3: Required Attribute Check">
+  ```csharp CategoryAttributeValueNormalizer.cs:47-57
+  var provided = values.Select(v => v.Id).ToHashSet();
+  foreach (var m in metadata.Where(m => m.IsRequired))
+  {
+      if (!provided.Contains(m.AttributeId))
+      {
+          vr.Add(
+              MetadataValidationErrorCode.Required,
+              $"Required attribute is missing: {m.Name} (id = {m.AttributeId})",
+              valueId: m.AttributeId);
+      }
+  }
+  ```
+  
+  Verifies that all required attributes have been provided.
+</Accordion>
+
+<Accordion title="Step 4: Type Validation & Normalization">
+  ```csharp CategoryAttributeValueNormalizer.cs:62-81
+  for (int i = 0; i < values.Count; i++)
+  {
+      var item = values[i];
+
+      if (!metaById.TryGetValue(item.Id, out var meta))
+      {
+          continue;
+      }
+
+      var field = $"attributes[{i}].value";
+
+      var perItem = ValidateAndNormalizeSingle(item.Value, meta, field);
+
+      vr.Merge(perItem.Validation);
+
+      if (perItem.IsSuccess && perItem.Value != null)
+      {
+          normalized[item.Id] = perItem.Value;
+      }
+  }
+  ```
+  
+  Validates each value against its type definition and normalizes it to a canonical format.
+</Accordion>
+
+<Accordion title="Step 5: Duplicate Detection">
+  ```csharp CategoryAttributeValueNormalizer.cs:83-95
+  var duplicates = values
+      .GroupBy(v => v.Id)
+      .Where(g => g.Count() > 1)
+      .Select(g => g.Key)
+      .ToList();
+  foreach (var d in duplicates)
+  {
+      vr.Add(
+          MetadataValidationErrorCode.Required,
+          $"Duplicate attributeId = {d} in request",
+          "attributes",
+          d);
+  }
+  ```
+  
+  Prevents providing the same attribute multiple times.
+</Accordion>
+
+## Type-Specific Normalization
+
+Each data type has specific normalization rules:
+
+### Integer Normalization
+
+```csharp CategoryAttributeValueNormalizer.cs:149-173
+case AttributeDataType.Integer:
+{
+    if (!TryParseInt(trimed, out var number))
+    {
+        vr.Add(
+            MetadataValidationErrorCode.InvalidType,
+            $"{meta.Name} must be an integer",
+            field,
+            meta.AttributeId);
+        return NormalizationResult<string>.Fail(vr);
+    }
+
+    if (!InRange(number, meta))
+    {
+        vr.Add(
+            MetadataValidationErrorCode.OutOfRange,
+            $"{meta.Name} is out of range",
+            field,
+            meta.AttributeId);
+        return NormalizationResult<string>.Fail(vr);
+    }
+
+    return NormalizationResult<string>.Success(number.ToString(
+        CultureInfo.InvariantCulture));
+}
+```
+
+### Decimal Normalization
+
+```csharp CategoryAttributeValueNormalizer.cs:175-200
+case AttributeDataType.Decimal:
+{
+    if (!TryParseDecimal(trimed, out var number))
+    {
+        vr.Add(
+            MetadataValidationErrorCode.InvalidType,
+            $"{meta.Name} must be a decimal",
+            field,
+            meta.AttributeId);
+        return NormalizationResult<string>.Fail(vr);
+    }
+
+    if (!InRange(number, meta))
+    {
+        vr.Add(
+            MetadataValidationErrorCode.OutOfRange,
+            $"{meta.Name} is out of range",
+            field,
+            meta.AttributeId);
+        return NormalizationResult<string>.Fail(vr);
+    }
+
+    var normalized = NormalizeDecimal(number);
+
+    return NormalizationResult<string>.Success(normalized!);
+}
+```
+
+<Info>
+  Decimals are rounded to 2 decimal places using `Math.Round` with `MidpointRounding.AwayFromZero`.
+</Info>
+
+### Boolean Normalization
+
+```csharp CategoryAttributeValueNormalizer.cs:202-217
+case AttributeDataType.Boolean:
+{
+    if (!TryParseBoolean(trimed, out var result))
+    {
+        vr.Add(
+            MetadataValidationErrorCode.InvalidType,
+            $"{meta.Name} must contain * true / false / 1 / 0 * only",
+            field,
+            meta.AttributeId);
+        return NormalizationResult<string>.Fail(vr);
+    }
+
+    var normalized = NormalizeBoolean(result);
+
+    return NormalizationResult<string>.Success(normalized);
+}
+```
+
+Boolean values accept multiple formats:
+- `"true"` / `"false"`
+- `"1"` / `"0"`
+
+All are normalized to `"true"` or `"false"` strings.
+
+### Helper Methods
+
+```csharp CategoryAttributeValueNormalizer.cs:283-288
+private static string? NormalizeDecimal(decimal input)
+{
+    var rounded = Math.Round(input, 2, MidpointRounding.AwayFromZero);
+    return rounded.ToString(CultureInfo.InvariantCulture);
+}
+```
+
+```csharp CategoryAttributeValueNormalizer.cs:309-312
+private static string NormalizeBoolean(bool value)
+{
+    return value ? "true" : "false";
+}
+```
+
+## Benefits of the Result Pattern
+
+### Batch Error Collection
+
+Instead of failing on the first error, the system collects all validation errors and returns them together:
+
+```json
+{
+  "errors": [
+    {
+      "code": "METADATA_REQUIRED",
+      "message": "Required attribute is missing: Fat Content (id = 1)",
+      "valueId": 1
+    },
+    {
+      "code": "METADATA_INVALID_TYPE",
+      "message": "Volume must be an integer",
+      "field": "attributes[1].value",
+      "valueId": 2
+    }
+  ]
+}
+```
+
+<Note>
+  This provides a better developer experience - fix all issues at once instead of playing "whack-a-mole" with one error at a time.
+</Note>
+
+### Performance
+
+Avoiding exceptions for predictable validation failures improves performance:
+- No expensive stack trace generation
+- No exception unwinding overhead
+- More predictable execution time
+
+### Testability
+
+Result types are easier to test than exception-based flows:
+
+```csharp
+var result = await normalizer.ValidateAndNormalizeAsync(categoryId, values, ct);
+
+Assert.False(result.IsSuccess);
+Assert.Contains(result.Validation.Errors, 
+    e => e.Code == "METADATA_REQUIRED");
+```
+
+## Data Canonicalization
+
+Normalization ensures data consistency:
+
+| Input | Data Type | Output |
+|-------|-----------|--------|
+| `"3.456"` | Decimal | `"3.46"` |
+| `"1"` | Boolean | `"true"` |
+| `"42"` | Integer | `"42"` |
+| `" text "` | String | `"text"` |
+
+<Info>
+  All values are trimmed and normalized using `CultureInfo.InvariantCulture` for consistent formatting.
+</Info>
+
+## Related Concepts
+
+- [Dynamic Metadata](/concepts/dynamic-metadata) - Understanding the JSONB metadata structure
+- [Category Hierarchy](/concepts/category-hierarchy) - How attribute schemas are inherited
+- [Product Management](/api/products/create) - Using validation in product creation

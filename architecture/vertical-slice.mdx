@@ -1,0 +1,428 @@
+---
+title: Vertical Slice Architecture
+description: Understanding the vertical slice architecture pattern and how features are organized in the GroceryStore API
+---
+
+## What is Vertical Slice Architecture?
+
+Vertical Slice Architecture organizes code by **business features** rather than technical layers. Each feature (or "slice") contains everything needed to handle a specific use case, from the HTTP endpoint down to the database access.
+
+<Note>
+  **Traditional Layered Architecture:** Controllers → Services → Repositories → Models
+  
+  **Vertical Slice Architecture:** Each feature is self-contained with its own endpoint, validation, repository, and logic
+</Note>
+
+## Benefits
+
+<CardGroup cols={2}>
+  <Card title="Reduced Coupling" icon="link-slash">
+    Features don't share code unnecessarily, reducing unintended side effects from changes.
+  </Card>
+  
+  <Card title="Better Scalability" icon="up-right-and-down-left-from-center">
+    Teams can work on different features independently without conflicts.
+  </Card>
+  
+  <Card title="Easier Testing" icon="vial">
+    Each feature can be tested in isolation with minimal mocking.
+  </Card>
+  
+  <Card title="Clear Boundaries" icon="border-all">
+    Feature boundaries are explicit, making the codebase easier to understand.
+  </Card>
+</CardGroup>
+
+## Feature Structure
+
+Each feature in the GroceryStore API follows this structure:
+
+```
+Features/
+└── Admin/
+    └── Product/
+        └── CreateProduct/              # Single feature slice
+            ├── CreateProduct.cs        # Endpoint definition
+            ├── CreateProductRequest.cs # Request DTO
+            ├── CreateProductRequestValidator.cs # Validation
+            └── CreateProductRepository.cs # Data access
+```
+
+### Anatomy of a Feature
+
+Let's examine the `CreateProduct` feature as an example:
+
+<Steps>
+  <Step title="Endpoint Definition">
+    The endpoint implements `IEndpoint` interface and defines the HTTP route:
+    
+    ```csharp GroceryStore/Features/Admin/Product/CreateProduct/CreateProduct.cs
+    public class CreateProduct : IEndpoint
+    {
+        public static void MapEndpoint(IEndpointRouteBuilder app)
+        {
+            app.MapPost("/api/v1/admin/products", HandleAsync)
+                .WithTags("AdminProducts")
+                .WithSummary("Creates a new Product")
+                .WithName("CreateProduct")
+                .Produces<int>(StatusCodes.Status201Created)
+                .Produces(StatusCodes.Status400BadRequest);
+        }
+
+        private static async Task<IResult> HandleAsync(
+            CreateProductRequest request,
+            CreateProductRepository repository,
+            CategoryAttributeValueNormalizer normalizer,
+            CreateProductRequestValidator validator,
+            ProductSkuGenerationService skuService,
+            CancellationToken ct)
+        {
+            // Endpoint logic
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="Request DTO">
+    Simple record defining the contract:
+    
+    ```csharp GroceryStore/Features/Admin/Product/CreateProduct/CreateProductRequest.cs
+    public record CreateProductRequest(
+        string Name,
+        int CategoryId,
+        int BrandId,
+        int CountryId,
+        string? Description,
+        decimal Price,
+        string? BaseUnit,
+        List<EnumerationModel> Attributes);
+    ```
+  </Step>
+  
+  <Step title="Validation">
+    FluentValidation rules for the request:
+    
+    ```csharp GroceryStore/Features/Admin/Product/CreateProduct/CreateProductRequestValidator.cs
+    public class CreateProductRequestValidator : AbstractValidator<CreateProductRequest>
+    {
+        public CreateProductRequestValidator()
+        {
+            RuleFor(p => p.Name)
+                .NotEmpty().WithMessage("Name is required")
+                .MaximumLength(50).WithMessage("Maximum length of Name is 50");
+
+            RuleFor(p => p.Price)
+                .GreaterThanOrEqualTo(0).WithMessage("Price must be >= 0");
+
+            RuleFor(p => p.CategoryId)
+                .GreaterThan(0).WithMessage("CategoryId must be > 0");
+
+            RuleFor(p => p.Attributes)
+                .NotEmpty().WithMessage("Attributes are required");
+
+            RuleFor(p => p.Attributes)
+                .Must(a => a.Select(x => x.Id).Distinct().Count() == a.Count)
+                .WithMessage("Duplicate attributeId in request");
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="Repository">
+    Data access specific to this feature:
+    
+    ```csharp GroceryStore/Features/Admin/Product/CreateProduct/CreateProductRepository.cs
+    public class CreateProductRepository(AppDbContext dbContext)
+    {
+        public async Task CreateAsync(Product product, CancellationToken ct)
+        {
+            dbContext.Add(product);
+            await dbContext.SaveChangesAsync(ct);
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Complete Feature Example
+
+Here's the full endpoint implementation showing how all pieces work together:
+
+```csharp GroceryStore/Features/Admin/Product/CreateProduct/CreateProduct.cs
+private static async Task<IResult> HandleAsync(
+    CreateProductRequest request,
+    CreateProductRepository repository,
+    CategoryAttributeValueNormalizer normalizer,
+    CreateProductRequestValidator validator,
+    ProductSkuGenerationService skuService,
+    CancellationToken ct)
+{
+    // 1. Validate basic request structure
+    var validationResult = await validator.ValidateAsync(request, ct);
+    if (!validationResult.IsValid)
+    {
+        return Results.BadRequest(validationResult.Errors);
+    }
+
+    // 2. Validate and normalize dynamic metadata
+    Dictionary<int, string> normalized;
+    try
+    {
+        var norm = await normalizer.ValidateAndNormalizeAsync(
+            request.CategoryId, 
+            request.Attributes, 
+            ct);
+
+        if (!norm.IsSuccess)
+        {
+            return Results.BadRequest(new { errors = norm.Validation.Errors });
+        }
+
+        normalized = norm.Value!;
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(ex.Message);
+    }
+
+    // 3. Generate SKU
+    var sku = await skuService.CreateSku(request.CategoryId, ct);
+    
+    // 4. Create entity
+    var product = new Product(
+        request.Name,
+        request.Price,
+        request.CategoryId,
+        request.BrandId,
+        request.CountryId,
+        sku,
+        request?.Description,
+        request?.BaseUnit,
+        normalized);
+
+    // 5. Persist to database
+    await repository.CreateAsync(product, ct);
+
+    return Results.Created($"/api/v1/admin/products/{product.Id}", product);
+}
+```
+
+## Feature Organization
+
+The `Features/` directory is organized hierarchically:
+
+```
+Features/
+└── Admin/                           # Feature area
+    ├── Product/                     # Feature group
+    │   ├── CreateProduct/          # Individual feature
+    │   │   ├── CreateProduct.cs
+    │   │   ├── CreateProductRequest.cs
+    │   │   ├── CreateProductRequestValidator.cs
+    │   │   └── CreateProductRepository.cs
+    │   ├── GetProducts/
+    │   │   ├── GetProducts.cs
+    │   │   ├── GetProductsResponse.cs
+    │   │   └── GetProductsRepository.cs
+    │   ├── UpdateProduct/
+    │   │   ├── UpdateProduct.cs
+    │   │   ├── UpdateProductRequest.cs
+    │   │   ├── UpdateProductValidator.cs
+    │   │   ├── UpdateProductHandler.cs
+    │   │   └── UpdateProductRepository.cs
+    │   └── DeleteProduct/
+    │       ├── DeleteProduct.cs
+    │       └── DeleteProductRepository.cs
+    └── Categories/
+        ├── GetCategories/
+        │   ├── GetCategories.cs
+        │   ├── GetCategoriesResponse.cs
+        │   └── GetCategoriesRepository.cs
+        └── GetMetadataByCategoryId/
+            ├── GetMetadata.cs
+            └── GetMetadataResponse.cs
+```
+
+## Read Feature Example
+
+Here's a query feature using Dapper for optimized reads:
+
+<CodeGroup>
+
+```csharp GroceryStore/Features/Admin/Product/GetProducts/GetProducts.cs
+public class GetProducts : IEndpoint
+{
+    public static void MapEndpoint(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/api/v1/admin/products", HandleAsync)
+            .WithTags("AdminProducts")
+            .WithSummary("Get all products");
+    }
+
+    private static async Task<IResult> HandleAsync(
+        GetProductsRepository repository,
+        CancellationToken ct)
+    {
+        var products = await repository.GetProductsAsync(ct);
+        return Results.Ok(products);
+    }
+}
+```
+
+```csharp GroceryStore/Features/Admin/Product/GetProducts/GetProductsRepository.cs
+public class GetProductsRepository(IDbConnectionFactory factory)
+{
+    public async Task<IEnumerable<GetProductsResponse>> GetProductsAsync(
+        CancellationToken ct)
+    {
+        using var connection = factory.CreateConnection();
+        const string sql = """
+            SELECT
+              p.id AS Id,
+              p.name AS Name,
+              p.price AS Price,
+              p.category_id AS CategoryId,
+              p.sku AS Sku,
+              p.description AS Description,
+              p.base_unit AS BaseUnit,
+              b.name AS BrandName,
+              c.code AS CountryCode,
+              c.name AS CountryName,
+              a.name AS AttributeName,
+              a.unit AS AttributeUnit,
+              mv.value AS AttributeValue
+            FROM products p
+            JOIN brands b ON b.id = p.brand_id
+            JOIN countries c ON c.id = p.country_id
+            LEFT JOIN LATERAL jsonb_each_text(p.metadata) mv(key, value) ON TRUE
+            LEFT JOIN attributes a ON a.id = (mv.key)::int
+            WHERE p.is_active = true
+            ORDER BY p.id;
+            """;
+        
+        var cmd = new CommandDefinition(sql, cancellationToken: ct);
+        var rows = await connection.QueryAsync<ProductRow>(cmd);
+        
+        // Group and map to response
+        return rows.GroupBy(r => r.Id)
+            .Select(g => MapToResponse(g));
+    }
+}
+```
+
+</CodeGroup>
+
+## When to Share Code
+
+While features are isolated, some code is legitimately shared:
+
+<AccordionGroup>
+  <Accordion title="Domain Entities">
+    Located in `Database/Entities/`, these are shared domain models:
+    
+    ```csharp
+    public class Product : BaseEntity
+    {
+        public string Name { get; private set; }
+        public decimal Price { get; private set; }
+        public Dictionary<int, string> Metadata { get; private set; }
+        // ...
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Infrastructure Services">
+    Cross-cutting concerns in `Infrastructure/Services/`:
+    
+    - `CategoryAttributeValueNormalizer` - Validates metadata
+    - `ProductSkuGenerationService` - Generates unique SKUs
+  </Accordion>
+  
+  <Accordion title="Shared Repositories">
+    Some repositories in `Infrastructure/Repositories/` are used by multiple features:
+    
+    - `CategoryAttributeRepository` - Retrieves category metadata schemas
+  </Accordion>
+  
+  <Accordion title="Common Utilities">
+    Located in `Shared/`:
+    
+    - Extensions
+    - Interfaces (e.g., `IEndpoint`)
+    - Common models and enums
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Be cautious when sharing code between features. Only share when the logic is genuinely reusable and not feature-specific. Premature abstraction can increase coupling.
+</Warning>
+
+## Dependency Injection
+
+Features use constructor injection for dependencies:
+
+```csharp
+private static async Task<IResult> HandleAsync(
+    CreateProductRequest request,              // From request body
+    CreateProductRepository repository,        // DI
+    CategoryAttributeValueNormalizer normalizer, // DI
+    CreateProductRequestValidator validator,   // DI
+    ProductSkuGenerationService skuService,    // DI
+    CancellationToken ct)                      // Framework-provided
+{
+    // Implementation
+}
+```
+
+Services are auto-registered using `ServiceScan.SourceGenerator`:
+
+```csharp
+builder.Services.AddFeatureServices(); // Scans and registers all services
+```
+
+## Comparison: Layered vs. Vertical Slice
+
+| Aspect | Layered Architecture | Vertical Slice Architecture |
+|--------|---------------------|-----------------------------|
+| **Organization** | By technical concern (Controllers, Services, Repositories) | By business feature |
+| **Coupling** | High - changes ripple across layers | Low - changes contained within slice |
+| **File Navigation** | Jump between multiple directories | All related files in one folder |
+| **Team Scaling** | Difficult - teams conflict on shared layers | Easy - teams own features |
+| **Code Reuse** | Encouraged via shared services | Only when genuinely needed |
+| **Testing** | Complex - many dependencies to mock | Simple - test entire feature |
+
+## Best Practices
+
+<Steps>
+  <Step title="Keep Features Small">
+    Each feature should handle a single use case. Split complex operations into multiple features.
+  </Step>
+  
+  <Step title="Feature-Specific Repositories">
+    Create repositories specific to each feature's needs rather than generic CRUD repositories.
+  </Step>
+  
+  <Step title="Minimize Shared Code">
+    Only share code when it's truly cross-cutting (e.g., domain entities, infrastructure services).
+  </Step>
+  
+  <Step title="Co-locate Related Files">
+    Keep all files for a feature in the same directory for easy navigation.
+  </Step>
+  
+  <Step title="Use Domain Events for Cross-Feature Communication">
+    When features need to communicate, use domain events rather than direct dependencies.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Design" icon="database" href="/architecture/database-design">
+    Learn about the database schema and entity design
+  </Card>
+  
+  <Card title="Hybrid Data Access" icon="arrows-left-right" href="/architecture/hybrid-data-access">
+    Understand why we use both EF Core and Dapper
+  </Card>
+</CardGroup>
